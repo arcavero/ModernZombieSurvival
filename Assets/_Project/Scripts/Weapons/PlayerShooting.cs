@@ -61,9 +61,8 @@ public class PlayerShooting : MonoBehaviour
 
     void Shoot()
     {
-        Debug.Log("Disparo!");
+        Debug.Log("Disparo!"); // Podemos comentar esto si ya funciona
 
-        // Usamos la referencia 'playerCamera' asignada o encontrada
         Ray ray = playerCamera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0));
         RaycastHit hitInfo;
 
@@ -71,12 +70,30 @@ public class PlayerShooting : MonoBehaviour
         {
             Debug.Log("Golpe detectado en: " + hitInfo.transform.name + " en el punto " + hitInfo.point);
             Debug.DrawRay(ray.origin, ray.direction * hitInfo.distance, Color.red, 1f);
-            // ... Lógica de daño futura ...
+
+            // --- INTENTAR APLICAR DAÑO ---
+            // Intenta obtener el componente HealthManager del objeto golpeado o de sus padres
+            // (GetComponentInParent es útil si golpeamos una hitbox hija de un enemigo).
+            // Por ahora, GetComponent es suficiente si el HealthManager está en el mismo objeto que el Collider.
+            HealthManager targetHealth = hitInfo.transform.GetComponent<HealthManager>();
+
+            if (targetHealth != null) // Comprueba si el objeto golpeado TIENE un HealthManager
+            {
+                // ¡Sí tiene! Le aplicamos daño.
+                float damageToApply = 10f; // Definir cuánto daño hace nuestro disparo
+                targetHealth.TakeDamage(damageToApply);
+                Debug.Log($"Aplicando {damageToApply} de daño a {hitInfo.transform.name}");
+            }
+            else
+            {
+                // El objeto golpeado no tiene componente HealthManager.
+                Debug.Log($"{hitInfo.transform.name} no tiene componente HealthManager.");
+            }
+            // --- FIN LÓGICA DE DAÑO ---
         }
         else
         {
             Debug.DrawRay(ray.origin, ray.direction * 100, Color.green, 1f);
         }
-        // ... Efectos futuros ...
     }
 }
