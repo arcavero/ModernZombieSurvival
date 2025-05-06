@@ -114,4 +114,22 @@ public class GameManager : MonoBehaviour
             enemy.enabled = false;
         }
     }
+
+    // --- Public function to be called by the UI Button ---
+    public void RestartGame()
+    {
+        Debug.Log("GameManager: Intentando reiniciar el juego...");
+
+        // 1. Resetear la escala de tiempo (MUY IMPORTANTE si alguna vez pausas el juego o lo ralentizas)
+        //    Asegura que la nueva escena empiece con tiempo normal.
+        Time.timeScale = 1f;
+
+        // 2. Cargar la escena activa actualmente por su índice en la configuración de Build.
+        //    Esto recarga el nivel actual.
+        Scene currentScene = SceneManager.GetActiveScene();
+        SceneManager.LoadScene(currentScene.buildIndex);
+
+        // Nota: No necesitamos reactivar controles, mostrar cursor, etc., aquí.
+        // Eso lo manejarán los scripts en sus Awake/Start cuando la escena se recargue.
+    }
 }
