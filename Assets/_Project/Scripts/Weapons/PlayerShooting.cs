@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using System.Collections; // Necesario para la corutina de disparo o temporizador
 
 // Ya no necesitamos RequireComponent para Camera aquí
 public class PlayerShooting : MonoBehaviour
@@ -7,6 +8,12 @@ public class PlayerShooting : MonoBehaviour
     // Añadimos un campo para asignar la cámara en el Inspector
     [Header("Setup")]
     [SerializeField] private Camera playerCamera;
+    // Referencia al ScriptableObject que define el arma actual
+    [SerializeField] private WeaponData currentWeaponData;
+
+    // Variables para la cadencia de fuego
+    private bool canShoot = true;
+    private float nextTimeToShoot = 0f;
 
     private PlayerInputActions playerInputActions;
     private bool fireActionPerformed = false;
@@ -31,8 +38,19 @@ public class PlayerShooting : MonoBehaviour
             }
         }
 
+        if (currentWeaponData == null)
+        {
+            Debug.LogError("ERROR: No hay Weapon Data asignado en PlayerShooting!", this);
+            enabled = false; // No podemos disparar sin datos de arma
+            return;
+        }
+
         playerInputActions = new PlayerInputActions();
-        playerInputActions.Player.Fire.performed += ctx => fireActionPerformed = true;
+
+        // --- Suscripción a Input ---
+        // Para disparo simple (un clic, un disparo):
+        playerInputActions.Player.Fire.performed += ctx => TryShoot();
+
     }
 
     void OnEnable()
@@ -45,55 +63,50 @@ public class PlayerShooting : MonoBehaviour
         playerInputActions.Player.Fire.Disable();
     }
 
-    void Update()
+    // Intenta disparar, respetando la cadencia
+    private void TryShoot()
     {
-        // Comprobamos si la acción de disparar se realizó en este frame
-        if (fireActionPerformed)
+        // Comprobar si ha pasado suficiente tiempo desde el último disparo
+        if (Time.time >= nextTimeToShoot)
         {
-            Shoot(); // Llamamos a la función de disparo
-
-            // Reseteamos la variable para que solo dispare una vez por click
-            // (Si quisiéramos fuego automático, manejaríamos esto diferente,
-            // quizás comprobando playerInputActions.Player.Fire.IsPressed() aquí)
-            fireActionPerformed = false;
+            // Actualizar el tiempo para el próximo disparo permitido
+            nextTimeToShoot = Time.time + currentWeaponData.fireRate;
+            // Realizar el disparo
+            Shoot();
         }
+        // else { Debug.Log("Cooldown..."); } // Opcional: Log si intenta disparar muy rápido
     }
 
-    void Shoot()
+    // Ejecuta la lógica del disparo usando los datos del arma actual
+    private void Shoot()
     {
-        Debug.Log("Disparo!"); // Podemos comentar esto si ya funciona
+        // Debug.Log($"Disparando {currentWeaponData.weaponName}!");
 
         Ray ray = playerCamera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0));
         RaycastHit hitInfo;
 
-        if (Physics.Raycast(ray, out hitInfo))
+        // Usar el rango del WeaponData
+        if (Physics.Raycast(ray, out hitInfo, currentWeaponData.range))
         {
-            Debug.Log("Golpe detectado en: " + hitInfo.transform.name + " en el punto " + hitInfo.point);
-            Debug.DrawRay(ray.origin, ray.direction * hitInfo.distance, Color.red, 1f);
+            // Debug.Log($"Golpe: {hitInfo.transform.name}"); // Log más corto
+            Debug.DrawRay(ray.origin, ray.direction * hitInfo.distance, Color.red, 0.1f); // Duración más corta
 
-            // --- INTENTAR APLICAR DAÑO ---
-            // Intenta obtener el componente HealthManager del objeto golpeado o de sus padres
-            // (GetComponentInParent es útil si golpeamos una hitbox hija de un enemigo).
-            // Por ahora, GetComponent es suficiente si el HealthManager está en el mismo objeto que el Collider.
             HealthManager targetHealth = hitInfo.transform.GetComponent<HealthManager>();
-
-            if (targetHealth != null) // Comprueba si el objeto golpeado TIENE un HealthManager
+            if (targetHealth != null)
             {
-                // ¡Sí tiene! Le aplicamos daño.
-                float damageToApply = 10f; // Definir cuánto daño hace nuestro disparo
-                targetHealth.TakeDamage(damageToApply);
-                Debug.Log($"Aplicando {damageToApply} de daño a {hitInfo.transform.name}");
+                // Usar el daño del WeaponData
+                targetHealth.TakeDamage(currentWeaponData.damage);
+                // Debug.Log($"Daño {currentWeaponData.damage} aplicado a {hitInfo.transform.name}");
             }
-            else
-            {
-                // El objeto golpeado no tiene componente HealthManager.
-                Debug.Log($"{hitInfo.transform.name} no tiene componente HealthManager.");
-            }
-            // --- FIN LÓGICA DE DAÑO ---
         }
         else
         {
-            Debug.DrawRay(ray.origin, ray.direction * 100, Color.green, 1f);
+            // Visualizar hasta el rango máximo si no golpea nada
+            Debug.DrawRay(ray.origin, ray.direction * currentWeaponData.range, Color.green, 0.1f);
         }
+
+        // --- Aquí irían efectos de sonido/visuales basados en WeaponData ---
+        // if(currentWeaponData.fireSound != null) AudioSource.PlayClipAtPoint(currentWeaponData.fireSound, transform.position);
+        // if(currentWeaponData.muzzleFlashPrefab != null) Instantiate(currentWeaponData.muzzleFlashPrefab, muzzlePoint.position, muzzlePoint.rotation);
     }
 }

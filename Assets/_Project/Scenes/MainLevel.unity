@@ -1092,6 +1092,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   playerCamera: {fileID: 1579767975}
+  currentWeaponData: {fileID: 11400000, guid: baa44a75d11b94111bfe6954959e4a02, type: 2}
 --- !u!114 &1267161944
 MonoBehaviour:
   m_ObjectHideFlags: 0
