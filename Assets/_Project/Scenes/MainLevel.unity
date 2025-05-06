@@ -228,7 +228,8 @@ Transform:
   m_LocalPosition: {x: 0, y: 1, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
-  m_Children: []
+  m_Children:
+  - {fileID: 1579767976}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!143 &1267161941
@@ -268,6 +269,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a34439e19c5c44fc38403836ba4a5c34, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  speed: 6
+  gravity: -19.62
+  lookSensitivityX: 0.2
 --- !u!1 &1347562080
 GameObject:
   m_ObjectHideFlags: 0
@@ -376,6 +380,7 @@ GameObject:
   - component: {fileID: 1579767976}
   - component: {fileID: 1579767975}
   - component: {fileID: 1579767974}
+  - component: {fileID: 1579767977}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -450,13 +455,28 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1579767973}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.08715578, y: 0, z: 0, w: 0.9961947}
-  m_LocalPosition: {x: 0, y: 1, z: -10}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0.6, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 10, y: 0, z: 0}
+  m_Father: {fileID: 1267161940}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1579767977
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1579767973}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2b74373d316ae4c66a009b504f5bba68, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  lookSensitivityY: 0.2
+  minVerticalAngle: -85
+  maxVerticalAngle: 85
 --- !u!1 &1755999839
 GameObject:
   m_ObjectHideFlags: 0
@@ -570,7 +590,6 @@ Transform:
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
-  - {fileID: 1579767976}
   - {fileID: 1347562082}
   - {fileID: 1755999843}
   - {fileID: 1267161940}
