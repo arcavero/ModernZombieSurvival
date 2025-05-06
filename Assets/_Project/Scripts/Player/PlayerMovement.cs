@@ -1,3 +1,4 @@
+// PlayerMovement.cs
 using UnityEngine;
 using UnityEngine.InputSystem; // ¡Importante! Usar el nuevo namespace
 
@@ -14,8 +15,6 @@ public class PlayerMovement : MonoBehaviour
     private CharacterController controller;
     private Vector3 verticalVelocity;
     private Vector2 moveInput; // Variable para almacenar el Vector2 de la acción "Move"
-    private Vector2 lookInput; // Variable para almacenar el Vector2 de la acción "Look"
-
     private PlayerInputActions playerInputActions; // Referencia al asset generado
 
     void Awake()
@@ -27,18 +26,8 @@ public class PlayerMovement : MonoBehaviour
 
         // --- Suscripciones de Input ---
         // --- Movimiento ---
-        // Acceder al Action Map "Player" y luego a la acción "Move".
-        // Suscribirse al evento 'performed': Se dispara cuando la acción se activa (tecla presionada, stick movido).
-        // ctx (context) contiene el valor leído. Lo asignamos a nuestra variable moveInput.
         playerInputActions.Player.Move.performed += ctx => moveInput = ctx.ReadValue<Vector2>();
-
-        // Suscribirse al evento 'canceled': Se dispara cuando la acción se desactiva (tecla soltada, stick vuelve al centro).
-        // Reseteamos moveInput a cero.
         playerInputActions.Player.Move.canceled += ctx => moveInput = Vector2.zero;
-
-        // --- Mirar (Look) - Leemos el delta del ratón
-        playerInputActions.Player.Look.performed += ctx => lookInput = ctx.ReadValue<Vector2>();
-        // Nota: No necesitamos 'canceled' para Look delta, ya que es cero si no se mueve.
 
         // --- Bloquear y Ocultar Cursor ---
         Cursor.lockState = CursorLockMode.Locked;
@@ -69,8 +58,6 @@ public class PlayerMovement : MonoBehaviour
     private void HandleMovement()
     {
         // Usamos el valor de moveInput (Vector2) que se actualiza mediante los eventos.
-        // moveInput.x corresponde al eje horizontal (A/D)
-        // moveInput.y corresponde al eje vertical (W/S)
         Vector3 moveDirection = (transform.right * moveInput.x + transform.forward * moveInput.y).normalized;
         Vector3 move = moveDirection * speed * Time.deltaTime;
         controller.Move(move);
@@ -91,12 +78,15 @@ public class PlayerMovement : MonoBehaviour
 
     private void HandleLook()
     {
+        // Polling: leer directamente el delta del ratón en cada frame
+        Vector2 lookDelta = playerInputActions.Player.Look.ReadValue<Vector2>();
+
         // Usamos solo el componente X del input del ratón (movimiento izquierda/derecha)
-        float mouseX = lookInput.x * lookSensitivityX;
+        float mouseX = lookDelta.x * lookSensitivityX;
 
         // Rotamos el transform del jugador alrededor del eje Y (vertical) global.
         transform.Rotate(Vector3.up * mouseX);
 
-        // La rotación vertical (mirar arriba/abajo) se manejará en un script separado en la cámara.
+        // La rotación vertical (mirar arriba/abajo) se manejará en CameraLook.
     }
 }
