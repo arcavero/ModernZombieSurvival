@@ -21,11 +21,17 @@ public class WeaponData : ScriptableObject // ¡Hereda de ScriptableObject, no d
     [Min(0.01f)]
     public float fireRate = 0.5f; // 2 disparos por segundo por defecto
 
+    [Header("Ammo & Reloading")]
+    [Tooltip("Número máximo de balas en el cargador.")]
+    [Min(1)] public int magazineSize = 15;
+
+    [Tooltip("Número máximo de balas que se pueden llevar en reserva para esta arma.")]
+    [Min(0)] public int maxTotalAmmo = 90;
+
+    [Tooltip("Tiempo en segundos que tarda la recarga.")]
+    [Min(0.1f)] public float reloadTime = 1.5f;
+
     // --- Podríamos añadir más datos aquí en el futuro ---
-    // [Header("Ammo")]
-    // public int magazineSize = 15;
-    // public int totalAmmoCapacity = 90;
-    // public float reloadTime = 1.5f;
 
     // [Header("Visuals & Audio")]
     // public GameObject muzzleFlashPrefab;

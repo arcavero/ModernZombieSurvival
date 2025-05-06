@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections; // Necesario para la corutina de disparo o temporizador
+using TMPro;                    // <- ¡Asegúrate de tener esto!
 
 // Ya no necesitamos RequireComponent para Camera aquí
 public class PlayerShooting : MonoBehaviour
@@ -10,6 +11,15 @@ public class PlayerShooting : MonoBehaviour
     [SerializeField] private Camera playerCamera;
     // Referencia al ScriptableObject que define el arma actual
     [SerializeField] private WeaponData currentWeaponData;
+
+    [Header("UI")]
+    // Asigna aquí el TextMeshPro de la munición
+    [SerializeField] private TextMeshProUGUI ammoTextElement;
+
+    // Estado interno del arma
+    private int currentAmmoInMagazine;
+    private int currentTotalAmmo; // Balas en reserva
+    private bool isReloading = false;
 
     // Variables para la cadencia de fuego
     private bool canShoot = true;
@@ -45,36 +55,70 @@ public class PlayerShooting : MonoBehaviour
             return;
         }
 
+        if (ammoTextElement == null)
+        {
+            Debug.LogWarning("Ammo Text Element no asignado en PlayerShooting. La UI no se actualizará.", this);
+        }
+
         playerInputActions = new PlayerInputActions();
 
         // --- Suscripción a Input ---
         // Para disparo simple (un clic, un disparo):
         playerInputActions.Player.Fire.performed += ctx => TryShoot();
+        // Nueva suscripción para recargar
+        playerInputActions.Player.Reload.performed += ctx => StartReload();
 
+    }
+
+    void Start()
+    {
+        // Inicializar munición al empezar (o al cambiar de arma)
+        currentAmmoInMagazine = currentWeaponData.magazineSize;
+        currentTotalAmmo = currentWeaponData.maxTotalAmmo;
+        UpdateAmmoUI();
+        isReloading = false; // Asegurarse de no empezar recargando
     }
 
     void OnEnable()
     {
         playerInputActions.Player.Fire.Enable();
+        playerInputActions.Player.Reload.Enable(); // Activar acción de recarga
+        isReloading = false; // Resetear estado si se reactiva el componente
     }
 
     void OnDisable()
     {
         playerInputActions.Player.Fire.Disable();
+        playerInputActions.Player.Reload.Disable(); // Desactivar acción de recarga
     }
 
     // Intenta disparar, respetando la cadencia
     private void TryShoot()
     {
-        // Comprobar si ha pasado suficiente tiempo desde el último disparo
-        if (Time.time >= nextTimeToShoot)
+        // No disparar si está recargando o si no ha pasado el tiempo de cadencia
+        if (isReloading || Time.time < nextTimeToShoot)
         {
-            // Actualizar el tiempo para el próximo disparo permitido
-            nextTimeToShoot = Time.time + currentWeaponData.fireRate;
-            // Realizar el disparo
-            Shoot();
+            return;
         }
-        // else { Debug.Log("Cooldown..."); } // Opcional: Log si intenta disparar muy rápido
+
+        // Comprobar si hay balas en el cargador
+        if (currentAmmoInMagazine <= 0)
+        {
+            Debug.Log("¡Sin munición! Necesitas recargar.");
+            // Podríamos iniciar la recarga automáticamente aquí o reproducir un sonido de "clic vacío"
+            // StartReload(); // <-- Opcional: Recarga automática al intentar disparar vacío
+            return;
+        }
+
+        // Actualizar el tiempo para el próximo disparo permitido
+        nextTimeToShoot = Time.time + currentWeaponData.fireRate;
+
+        // Realizar el disparo
+        Shoot();
+
+        // Reducir munición y actualizar UI
+        currentAmmoInMagazine--;
+        UpdateAmmoUI();
     }
 
     // Ejecuta la lógica del disparo usando los datos del arma actual
@@ -108,5 +152,52 @@ public class PlayerShooting : MonoBehaviour
         // --- Aquí irían efectos de sonido/visuales basados en WeaponData ---
         // if(currentWeaponData.fireSound != null) AudioSource.PlayClipAtPoint(currentWeaponData.fireSound, transform.position);
         // if(currentWeaponData.muzzleFlashPrefab != null) Instantiate(currentWeaponData.muzzleFlashPrefab, muzzlePoint.position, muzzlePoint.rotation);
+    }
+
+    // Inicia el proceso de recarga si es posible
+    private void StartReload()
+    {
+        // No recargar si ya estamos recargando, si el cargador está lleno o si no hay munición de reserva
+        if (isReloading || currentAmmoInMagazine == currentWeaponData.magazineSize || currentTotalAmmo <= 0)
+        {
+            return;
+        }
+
+        // Iniciar la corutina de recarga
+        StartCoroutine(ReloadCoroutine());
+    }
+
+    // Corutina que maneja el tiempo de recarga
+    private IEnumerator ReloadCoroutine()
+    {
+        Debug.Log("Recargando...");
+        isReloading = true;
+        // Aquí podrías reproducir sonido de inicio de recarga o animación
+
+        // Esperar el tiempo definido en WeaponData
+        yield return new WaitForSeconds(currentWeaponData.reloadTime);
+
+        // Calcular cuántas balas necesitamos y cuántas tenemos disponibles
+        int ammoNeeded = currentWeaponData.magazineSize - currentAmmoInMagazine;
+        int ammoToTransfer = Mathf.Min(ammoNeeded, currentTotalAmmo); // Tomar lo necesario o lo que quede
+
+        // Transferir munición
+        currentAmmoInMagazine += ammoToTransfer;
+        currentTotalAmmo -= ammoToTransfer;
+
+        // Finalizar estado de recarga
+        isReloading = false;
+        UpdateAmmoUI();
+        Debug.Log("¡Recarga completa!");
+        // Aquí podrías reproducir sonido de fin de recarga
+    }
+
+    // Actualiza el elemento TextMeshPro con la munición actual
+    private void UpdateAmmoUI()
+    {
+        if (ammoTextElement != null)
+        {
+            ammoTextElement.text = $"AMMO: {currentAmmoInMagazine} / {currentTotalAmmo}";
+        }
     }
 }
