@@ -16,6 +16,12 @@ public class PlayerShooting : MonoBehaviour
     // Asigna aquí el TextMeshPro de la munición
     [SerializeField] private TextMeshProUGUI ammoTextElement;
 
+    // --- AÑADIR ESTOS CAMPOS PARA EL FEEDBACK DE IMPACTO ---
+    [Header("Impact Feedback (Flesh Only)")]
+    [SerializeField] private AudioClip impactFleshSound;
+    [SerializeField] private GameObject impactFleshVFXPrefab;
+    // --- FIN DE CAMPOS AÑADIDOS ---
+
     // Estado interno del arma
     private int currentAmmoInMagazine;
     private int currentTotalAmmo; // Balas en reserva
@@ -124,34 +130,59 @@ public class PlayerShooting : MonoBehaviour
     // Ejecuta la lógica del disparo usando los datos del arma actual
     private void Shoot()
     {
-        // Debug.Log($"Disparando {currentWeaponData.weaponName}!");
+        // Reproducir sonido de disparo del arma
+        if (currentWeaponData.fireSound != null)
+        {
+            // Podrías querer un AudioSource en el jugador/arma para más control,
+            // o seguir usando PlayClipAtPoint si el sonido debe originarse del jugador.
+            AudioSource.PlayClipAtPoint(currentWeaponData.fireSound, playerCamera.transform.position, 0.8f);
+        }
+
+        // (Opcional) Instanciar fogonazo si tienes un punto de referencia (muzzlePoint)
+        // if (currentWeaponData.muzzleFlashPrefab != null && muzzlePoint != null)
+        // {
+        //     Instantiate(currentWeaponData.muzzleFlashPrefab, muzzlePoint.position, muzzlePoint.rotation);
+        // }
+
 
         Ray ray = playerCamera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0));
         RaycastHit hitInfo;
 
-        // Usar el rango del WeaponData
         if (Physics.Raycast(ray, out hitInfo, currentWeaponData.range))
         {
-            // Debug.Log($"Golpe: {hitInfo.transform.name}"); // Log más corto
-            Debug.DrawRay(ray.origin, ray.direction * hitInfo.distance, Color.red, 0.1f); // Duración más corta
+            Debug.DrawRay(ray.origin, ray.direction * hitInfo.distance, Color.red, 0.1f);
 
+            Debug.Log($"Raycast golpeó: {hitInfo.transform.name} (Tag: {hitInfo.transform.tag})"); // <-- NUEVO LOG
+            
             HealthManager targetHealth = hitInfo.transform.GetComponent<HealthManager>();
-            if (targetHealth != null)
+            if (targetHealth != null) // Golpeó enemigo
             {
-                // Usar el daño del WeaponData
+                Debug.Log($"HealthManager encontrado en {hitInfo.transform.name}. Aplicando daño."); // <-- NUEVO LOG
                 targetHealth.TakeDamage(currentWeaponData.damage);
-                // Debug.Log($"Daño {currentWeaponData.damage} aplicado a {hitInfo.transform.name}");
+
+                if (currentWeaponData.impactFleshSound != null)
+                {
+                    AudioSource.PlayClipAtPoint(currentWeaponData.impactFleshSound, hitInfo.point, 0.7f);
+                }
+                if (currentWeaponData.impactFleshVFXPrefab != null)
+                {
+                    Instantiate(currentWeaponData.impactFleshVFXPrefab, hitInfo.point, Quaternion.LookRotation(hitInfo.normal));
+                }
             }
+            // else if (currentWeaponData.impactEnvironmentSound != null) // Si añades para entorno
+            // {
+            //     AudioSource.PlayClipAtPoint(currentWeaponData.impactEnvironmentSound, hitInfo.point, 0.7f);
+            //     if (currentWeaponData.impactEnvironmentVFXPrefab != null)
+            //     {
+            //         Instantiate(currentWeaponData.impactEnvironmentVFXPrefab, hitInfo.point, Quaternion.LookRotation(hitInfo.normal));
+            //     }
+            // }
         }
         else
         {
-            // Visualizar hasta el rango máximo si no golpea nada
             Debug.DrawRay(ray.origin, ray.direction * currentWeaponData.range, Color.green, 0.1f);
+            Debug.LogWarning($"No se encontró HealthManager en {hitInfo.transform.name} (Tag: {hitInfo.transform.tag})."); // <-- NUEVO LOG
         }
-
-        // --- Aquí irían efectos de sonido/visuales basados en WeaponData ---
-        // if(currentWeaponData.fireSound != null) AudioSource.PlayClipAtPoint(currentWeaponData.fireSound, transform.position);
-        // if(currentWeaponData.muzzleFlashPrefab != null) Instantiate(currentWeaponData.muzzleFlashPrefab, muzzlePoint.position, muzzlePoint.rotation);
     }
 
     // Inicia el proceso de recarga si es posible

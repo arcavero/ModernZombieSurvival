@@ -1,149 +1,190 @@
 using UnityEngine;
 using System.Collections;
-using System.Collections.Generic; // Necesario para List
+using System.Collections.Generic;
+using TMPro;
 
 public class EnemySpawner : MonoBehaviour
 {
+    [System.Serializable]
+    public class Wave
+    {
+        public string name;
+        public int numberOfEnemies;
+        public float timeBetweenIndividualSpawns = 1f;
+    }
+
     [Header("References")]
-    [Tooltip("El prefab del enemigo que se va a instanciar.")]
-    [SerializeField] private GameObject enemyPrefab;
-    [Tooltip("Lista de Transforms donde los enemigos pueden aparecer.")]
-    [SerializeField] private List<Transform> spawnPoints;
+    [SerializeField] private GameObject defaultEnemyPrefab;
+    [SerializeField] private Transform spawnPointsContainer;
 
-    [Header("Spawning Settings")]
-    [Tooltip("Tiempo en segundos antes de que empiece el primer spawn.")]
-    [SerializeField] private float initialSpawnDelay = 3f;
-    [Tooltip("Tiempo en segundos entre cada intento de spawn.")]
-    [SerializeField] private float timeBetweenSpawns = 5f;
-    [Tooltip("Cuántos enemigos intentar generar en cada intervalo de spawn.")]
-    [SerializeField] private int enemiesPerSpawnWave = 1;
+    [Header("Wave Settings")]
+    [SerializeField] private Wave[] waves;
+    [SerializeField] private float timeBetweenWaves = 5f;
+    private int currentWaveIndex = 0;
 
-    [Header("Limits")]
-    [Tooltip("Número máximo de enemigos activos en la escena a la vez.")]
-    [SerializeField] private int maxActiveEnemies = 10;
+    private int enemiesToSpawnInCurrentWave;
+    private int enemiesAliveFromCurrentWave;
 
-    // Contador interno para saber cuántos enemigos están activos
-    private int currentActiveEnemies = 0;
-    // Variable para guardar la referencia a la corutina
-    private Coroutine spawnCoroutine;
+    [Header("UI Feedback (Optional)")]
+    [SerializeField] private TextMeshProUGUI waveTextElement;
+    [SerializeField] private TextMeshProUGUI enemiesRemainingTextElement;
+
+    private List<Transform> activeSpawnPoints = new List<Transform>();
+    private Coroutine waveSpawnCoroutine;
+
+    void Awake()
+    {
+        // Validaciones...
+        if (defaultEnemyPrefab == null)
+        {
+            Debug.LogError("ERROR: Default Enemy Prefab no está asignado!", this);
+            enabled = false;
+            return;
+        }
+        if (spawnPointsContainer == null)
+        {
+            Debug.LogError("ERROR: Spawn Points Container no está asignado!", this);
+            enabled = false;
+            return;
+        }
+        if (waves == null || waves.Length == 0)
+        {
+            Debug.LogError("ERROR: No hay oleadas definidas!", this);
+            enabled = false;
+            return;
+        }
+
+        // Poblar puntos de spawn...
+        PopulateSpawnPointsFromContainer();
+        if (activeSpawnPoints.Count == 0)
+        {
+            Debug.LogError("ERROR: No hay puntos de spawn activos!", this);
+            enabled = false;
+        }
+    }
 
     void Start()
     {
-        // --- Validación de configuración ---
-        if (enemyPrefab == null)
-        {
-            Debug.LogError("ERROR: Enemy Prefab no está asignado en el EnemySpawner!", this);
-            enabled = false; // Desactivar el spawner si falta el prefab
-            return;
-        }
-
-        if (spawnPoints == null || spawnPoints.Count == 0)
-        {
-            Debug.LogError("ERROR: No se han asignado Spawn Points en el EnemySpawner!", this);
-            enabled = false; // Desactivar si no hay dónde spawnear
-            return;
-        }
-
-        // Asegurarse de que el contador empieza en 0
-        currentActiveEnemies = 0;
-
-        // Iniciar la rutina de spawneo
-        spawnCoroutine = StartCoroutine(SpawnRoutine());
-        Debug.Log("Enemy Spawner iniciado.");
+        waveSpawnCoroutine = StartCoroutine(WaveSpawnRoutine());
     }
 
-    // Se llama cuando este componente se desactiva o destruye
     void OnDisable()
     {
-        // Detener la corutina si el spawner se desactiva para evitar errores
-        if (spawnCoroutine != null)
-        {
-            StopCoroutine(spawnCoroutine);
-            Debug.Log("Enemy Spawner detenido.");
-        }
+        if (waveSpawnCoroutine != null)
+            StopCoroutine(waveSpawnCoroutine);
     }
 
-
-    private IEnumerator SpawnRoutine()
+    private void PopulateSpawnPointsFromContainer()
     {
-        // Esperar el retraso inicial antes de empezar
-        yield return new WaitForSeconds(initialSpawnDelay);
+        activeSpawnPoints.Clear();
+        foreach (Transform child in spawnPointsContainer)
+            if (child.gameObject.activeSelf)
+                activeSpawnPoints.Add(child);
 
-        // Bucle principal del spawner
-        while (true) // Se ejecutará mientras el spawner esté activo
-        {
-            // Intentar spawnear una oleada
-            TrySpawnWave();
-
-            // Esperar el tiempo definido antes del siguiente intento
-            yield return new WaitForSeconds(timeBetweenSpawns);
-        }
+        Debug.Log($"Encontrados {activeSpawnPoints.Count} puntos de spawn activos.");
     }
 
-    private void TrySpawnWave()
+    private IEnumerator WaveSpawnRoutine()
     {
-        // Intentar generar el número de enemigos por oleada
-        for (int i = 0; i < enemiesPerSpawnWave; i++)
+        // Delay inicial antes de la primera oleada
+        yield return new WaitForSeconds(timeBetweenWaves);
+
+        while (currentWaveIndex < waves.Length)
         {
-            // Comprobar si ya hemos alcanzado el límite
-            if (currentActiveEnemies >= maxActiveEnemies)
+            Wave currentWave = waves[currentWaveIndex];
+            enemiesToSpawnInCurrentWave = currentWave.numberOfEnemies;
+            enemiesAliveFromCurrentWave = 0;
+            UpdateWaveUI();
+
+            Debug.Log($"-- Iniciando Oleada {currentWaveIndex + 1} --");
+
+            // Spawneo
+            for (int i = 0; i < currentWave.numberOfEnemies; i++)
             {
-                // Debug.Log("Límite máximo de enemigos alcanzado, esperando a que mueran...");
-                return; // No spawnear más en esta oleada si estamos al límite
+                SpawnSingleEnemyForCurrentWave();
+                enemiesToSpawnInCurrentWave--;
+
+                if (i < currentWave.numberOfEnemies - 1)
+                    yield return new WaitForSeconds(currentWave.timeBetweenIndividualSpawns);
             }
 
-            // Proceder a spawnear un enemigo
-            SpawnSingleEnemy();
+            // Esperar hasta que todos los vivos mueran
+            while (enemiesAliveFromCurrentWave > 0)
+                yield return null;
+
+            Debug.Log($"-- Oleada {currentWaveIndex + 1} completada --");
+            currentWaveIndex++;
+
+            if (currentWaveIndex < waves.Length)
+            {
+                UpdateWaveUI(true);
+                yield return new WaitForSeconds(timeBetweenWaves);
+            }
+            else
+            {
+                UpdateWaveUI(false, true);
+                enabled = false;
+            }
         }
     }
 
-    private void SpawnSingleEnemy()
+    private void SpawnSingleEnemyForCurrentWave()
     {
-        // 1. Elegir un punto de spawn aleatorio
-        int randomIndex = Random.Range(0, spawnPoints.Count);
-        Transform chosenSpawnPoint = spawnPoints[randomIndex];
-
-        if (chosenSpawnPoint == null)
+        if (activeSpawnPoints.Count == 0)
         {
-            Debug.LogError("ERROR: Uno de los spawn points en la lista es nulo!", this);
-            return; // Evitar error si un punto es nulo
+            Debug.LogWarning("No hay puntos de spawn activos.");
+            return;
         }
 
-        // 2. Instanciar el prefab del enemigo
-        GameObject newEnemyGO = Instantiate(enemyPrefab, chosenSpawnPoint.position, chosenSpawnPoint.rotation);
-        newEnemyGO.name = enemyPrefab.name + "_" + Time.time; // Darle un nombre único (opcional)
+        var spawnPt = activeSpawnPoints[Random.Range(0, activeSpawnPoints.Count)];
+        GameObject newEnemyGO = Instantiate(defaultEnemyPrefab, spawnPt.position, spawnPt.rotation);
 
-        // 3. Obtener su HealthManager para suscribirse al evento de muerte
-        HealthManager enemyHealth = newEnemyGO.GetComponent<HealthManager>();
-        if (enemyHealth != null)
+        // ** Asegurarnos de que esté activo**
+        if (!newEnemyGO.activeSelf)
         {
-            // Cuando este enemigo específico muera, llamará a HandleEnemyDeath
-            enemyHealth.OnDied += HandleEnemyDeath;
+            newEnemyGO.SetActive(true);
+            Debug.LogWarning($"Enemy instanciado en inactivo, activando durante spawn.");
+        }
+
+        newEnemyGO.name = defaultEnemyPrefab.name + "_Wave" + (currentWaveIndex + 1) + "_" + Time.frameCount;
+        Debug.Log($"[Spawner] Spawned enemy at {spawnPt.position}");
+        Debug.DrawRay(spawnPt.position, Vector3.up * 2f, Color.red, 2f);
+
+        enemiesAliveFromCurrentWave++;
+        UpdateWaveUI();
+
+        var health = newEnemyGO.GetComponent<HealthManager>();
+        if (health != null)
+            health.OnDied += HandleEnemyDeathInWave;
+        else
+            Debug.LogWarning($"El prefab {newEnemyGO.name} no tiene HealthManager.", newEnemyGO);
+    }
+
+    private void HandleEnemyDeathInWave()
+    {
+        enemiesAliveFromCurrentWave = Mathf.Max(0, enemiesAliveFromCurrentWave - 1);
+        Debug.Log($"Un enemigo murió. Vivos: {enemiesAliveFromCurrentWave}");
+        UpdateWaveUI();
+    }
+
+    private void UpdateWaveUI(bool betweenWaves = false, bool allCompleted = false)
+    {
+        if (allCompleted)
+        {
+            if (waveTextElement) waveTextElement.text = "¡TODAS LAS OLEADAS SUPERADAS!";
+            if (enemiesRemainingTextElement) enemiesRemainingTextElement.text = "";
+            return;
+        }
+
+        if (betweenWaves)
+        {
+            if (waveTextElement) waveTextElement.text = $"Preparando Oleada: {currentWaveIndex + 1}";
+            if (enemiesRemainingTextElement) enemiesRemainingTextElement.text = "¡Prepárate!";
         }
         else
         {
-            // Si no hay HealthManager, no podemos rastrear su muerte para el contador.
-            // Esto podría ser un problema o intencional si algunos prefabs no tienen vida.
-            Debug.LogWarning($"Enemigo spawneado ({newEnemyGO.name}) no tiene HealthManager. No se rastreará su muerte.", newEnemyGO);
+            if (waveTextElement) waveTextElement.text = $"Oleada: {currentWaveIndex + 1} / {waves.Length}";
+            if (enemiesRemainingTextElement) enemiesRemainingTextElement.text = $"Enemigos Restantes: {enemiesAliveFromCurrentWave}";
         }
-
-        // 4. Incrementar el contador de enemigos activos
-        currentActiveEnemies++;
-        // Debug.Log($"Enemigo spawneado. Activos: {currentActiveEnemies}/{maxActiveEnemies}");
-    }
-
-    // Esta función se suscribe al evento OnDied de cada HealthManager enemigo
-    private void HandleEnemyDeath()
-    {
-        // Decrementar el contador cuando un enemigo muere
-        currentActiveEnemies--;
-        currentActiveEnemies = Mathf.Max(0, currentActiveEnemies); // Asegurar que no baje de 0
-        // Debug.Log($"Un enemigo murió. Activos: {currentActiveEnemies}/{maxActiveEnemies}");
-
-        // Importante: No necesitamos desuscribirnos manualmente aquí (`enemyHealth.OnDied -= HandleEnemyDeath;`)
-        // porque el evento lo lanza el enemigo que está muriendo (y presumiblemente
-        // será destruido o desactivado), lo que rompe la referencia al evento automáticamente.
-        // Si el enemigo *no* se destruyera, necesitaríamos una forma de pasar la referencia
-        // del HealthManager a esta función para poder desuscribirnos.
     }
 }

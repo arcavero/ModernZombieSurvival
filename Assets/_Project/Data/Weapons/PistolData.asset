@@ -16,3 +16,10 @@ MonoBehaviour:
   damage: 15
   range: 50
   fireRate: 0.2
+  magazineSize: 15
+  maxTotalAmmo: 90
+  reloadTime: 1.5
+  fireSound: {fileID: 8300000, guid: f13d24cfbfeb5f2479675b8ef1be809b, type: 3}
+  impactFleshSound: {fileID: 8300000, guid: 17b1488f650928a498032d0972a1c82d, type: 3}
+  muzzleFlashPrefab: {fileID: 0}
+  impactFleshVFXPrefab: {fileID: 6164786674169640538, guid: fe3c17a4ece60674597724a8d88ce247, type: 3}

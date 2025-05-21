@@ -1,2 +1,15 @@
 fileFormatVersion: 2
 guid: 71e1ce0bb602549648bb4074fc273070
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - defaultEnemyPrefab: {fileID: 4375398745676647772, guid: 4a4b48064781c4da593bd10254bc68bf, type: 3}
+  - spawnPointsContainer: {instanceID: 0}
+  - waveTextElement: {instanceID: 0}
+  - enemiesRemainingTextElement: {instanceID: 0}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

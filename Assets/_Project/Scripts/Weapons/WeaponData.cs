@@ -34,6 +34,15 @@ public class WeaponData : ScriptableObject // ¡Hereda de ScriptableObject, no d
     // --- Podríamos añadir más datos aquí en el futuro ---
 
     // [Header("Visuals & Audio")]
+    // --- NUEVO: Campos para feedback ---
+    public AudioClip fireSound;
+    public AudioClip impactFleshSound;
+    // public AudioClip impactEnvironmentSound; // Si lo necesitas después
+    public GameObject muzzleFlashPrefab;
+    public GameObject impactFleshVFXPrefab;
+    // public GameObject impactEnvironmentVFXPrefab; // Si lo necesitas después
+    // --- FIN NUEVO ---
+
     // public GameObject muzzleFlashPrefab;
     // public GameObject bulletImpactEffectPrefab;
     // public AudioClip fireSound;
