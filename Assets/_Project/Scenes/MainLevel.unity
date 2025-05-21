@@ -1370,8 +1370,15 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   speed: 6
+  sprintSpeedMultiplier: 1.5
   gravity: -19.62
   lookSensitivityX: 0.05
+  footstepSounds:
+  - {fileID: 8300000, guid: a99bec147068c1141a3a17f7e7b4b827, type: 3}
+  - {fileID: 8300000, guid: a99bec147068c1141a3a17f7e7b4b827, type: 3}
+  stepDistanceWalking: 2
+  stepDistanceSprinting: 1.2
+  footstepVolume: 1
 --- !u!114 &1267161943
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1780,7 +1787,6 @@ MonoBehaviour:
   - name: Oleada 3
     numberOfEnemies: 20
     timeBetweenIndividualSpawns: 1.5
-  initialSpawnDelay: 1
   timeBetweenWaves: 2
   waveTextElement: {fileID: 1937423638}
   enemiesRemainingTextElement: {fileID: 852626443}
