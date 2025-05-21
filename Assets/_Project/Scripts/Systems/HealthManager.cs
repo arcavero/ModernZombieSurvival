@@ -6,6 +6,12 @@ public class HealthManager : MonoBehaviour
     [SerializeField] private float maxHealth = 100f;
     private float currentHealth;
 
+    [Header("Audio Feedback (Optional)")]
+    [SerializeField] private AudioClip damageSound; // Asigna tu sonido de daño aquí en el Inspector
+    // [SerializeField] private AudioClip deathSound;  // Podrías tener un sonido de muerte separado
+
+    private AudioSource audioSource; // Referencia al componente AudioSource
+
     // Eventos para notificar a otros scripts sobre cambios en la salud o muerte
     // Action<float>: Evento que pasa la vida actual como parámetro
     // Action: Evento simple sin parámetros
@@ -16,10 +22,23 @@ public class HealthManager : MonoBehaviour
     public float MaxHealth => maxHealth;       // Propiedad pública de solo lectura
     public bool IsDead => currentHealth <= 0; // Propiedad que calcula si está muerto
 
+    
+
+
     void Awake()
     {
         // Inicializar la vida al máximo al despertar el objeto
         currentHealth = maxHealth;
+
+        // Obtener la referencia al AudioSource
+        audioSource = GetComponent<AudioSource>();
+        if (audioSource == null)
+        {
+            // Si no está, y hemos puesto RequireComponent, Unity lo añadirá.
+            // Pero es buena práctica tener una advertencia si olvidamos el RequireComponent.
+            Debug.LogWarning($"HealthManager en {gameObject.name} no tiene un AudioSource. El sonido de daño no se reproducirá.", this);
+        }
+
     }
 
     /// <summary>
@@ -28,21 +47,24 @@ public class HealthManager : MonoBehaviour
     /// <param name="damageAmount">La cantidad de daño a aplicar (debe ser positiva).</param>
     public void TakeDamage(float damageAmount)
     {
-        if (IsDead || damageAmount <= 0)
-        {
-            // No hacer nada si ya está muerto o el daño es inválido
-            return;
-        }
+        if (IsDead || damageAmount <= 0) return;
 
         currentHealth -= damageAmount;
-        currentHealth = Mathf.Max(currentHealth, 0f); // Asegurar que la vida no baje de 0
+        currentHealth = Mathf.Max(currentHealth, 0f);
 
         Debug.Log($"{gameObject.name} recibió {damageAmount} de daño. Vida restante: {currentHealth}");
 
-        // Lanzar el evento para notificar a otros scripts (como barras de vida, etc.)
+        // --- Reproducir Sonido de Daño ---
+        if (damageSound != null && audioSource != null)
+        {
+            // audioSource.PlayOneShot(damageSound); // PlayOneShot es bueno para efectos rápidos
+            // O si quieres más control (ej. sobre el volumen del clip específico):
+            audioSource.PlayOneShot(damageSound, 1.0f); // El segundo parámetro es volumeScale
+        }
+        // --- Fin Sonido de Daño ---
+
         OnHealthChanged?.Invoke(currentHealth);
 
-        // Comprobar si ha muerto después de recibir el daño
         if (IsDead)
         {
             Die();
