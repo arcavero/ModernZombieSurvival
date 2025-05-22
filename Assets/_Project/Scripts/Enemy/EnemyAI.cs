@@ -1,119 +1,159 @@
-// EnemyAI.cs
 using UnityEngine;
-using UnityEngine.AI; // ¡Muy importante incluir el namespace de AI!
+using UnityEngine.AI;
+using System.Collections.Generic; // Necesario para sonidos de idle si los tienes
 
-[RequireComponent(typeof(NavMeshAgent))] // Asegura que siempre tengamos el agente
+[RequireComponent(typeof(NavMeshAgent))]
+[RequireComponent(typeof(AudioSource))] // Para sonidos de idle/ataque del enemigo
 public class EnemyAI : MonoBehaviour
 {
-    [Header("AI Settings")]
-    [SerializeField] private float detectionRange = 20f; // Rango opcional para empezar a seguir
-    [SerializeField] private float attackRange = 1.5f;  // Distancia a la que se detiene (para atacar luego)
-    [SerializeField] private float updateRate = 0.25f; // Con qué frecuencia actualizamos el destino (optimización)
+    [Header("AI Detection Settings")]
+    [SerializeField] private float detectionRange = 20f;
+    [Tooltip("Con qué frecuencia la IA actualiza su lógica de detección/movimiento (segundos).")]
+    [SerializeField] private float aiUpdateRate = 0.25f;
 
-    [Header("Attack Settings")]
-    [SerializeField] private int attackDamage = 10;   // Cantidad de daño por ataque
-    [SerializeField] private float attackRate = 1f;   // Segundos entre ataques
-    private float timeSinceLastAttack = 0f;   // Hora del último ataque
+    // --- MODIFICADO: Los valores de ataque ahora se pueden configurar desde fuera ---
+    // Se usarán como defaults si EnemyInitializer no los sobrescribe.
+    [Header("Default Attack Settings (Sobrescritos por EnemyData si se usa EnemyInitializer)")]
+    [SerializeField] private int defaultAttackDamage = 10;
+    [SerializeField] private float defaultAttackRate = 1f;
+    [SerializeField] private float defaultAttackRange = 1.5f; // NavMeshAgent.stoppingDistance se ajustará a esto
+
+    private int currentAttackDamage;
+    private float currentAttackRate;
+    // currentAttackRange se refleja en agent.stoppingDistance
+
+    [Header("Audio Settings")]
+    [SerializeField] private List<AudioClip> idleGrunts;
+    [SerializeField] private AudioClip attackSound;
+    [SerializeField] private float minTimeBetweenGrunts = 3f;
+    [SerializeField] private float maxTimeBetweenGrunts = 7f;
 
     private NavMeshAgent agent;
     private Transform playerTransform;
-    private HealthManager playerHealthManager; // Referencia al HealthManager del jugador
-    private float lastUpdateTime = 0f; // Para controlar la tasa de actualización
+    private HealthManager playerHealthManager;
+    private AudioSource audioSource;
+
+    private float timeSinceLastAttack = 0f;
+    private float nextAiUpdateTime = 0f;
+    private float nextGruntTime = 0f;
 
     void Awake()
     {
         agent = GetComponent<NavMeshAgent>();
+        audioSource = GetComponent<AudioSource>();
 
-        // Buscar al jugador por Tag al inicio
         GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
         if (playerObject != null)
         {
             playerTransform = playerObject.transform;
             playerHealthManager = playerObject.GetComponent<HealthManager>();
-            if (playerHealthManager == null)
-                Debug.LogError("EnemyAI: El Player no tiene HealthManager. Añade el componente HealthManager.cs.", this);
+            if (playerHealthManager == null) Debug.LogError("EnemyAI: Player no tiene HealthManager.", this);
         }
         else
         {
-            Debug.LogError("EnemyAI: No se pudo encontrar el GameObject del Jugador con la etiqueta 'Player'.", this);
-            enabled = false; // Desactivar este script si no hay jugador
-            return;
+            Debug.LogError("EnemyAI: No se encontró el Player.", this);
+            enabled = false; return;
         }
 
-        // Configurar la distancia de parada del agente
-        agent.stoppingDistance = attackRange;
+        // --- MODIFICADO: Inicializar valores de ataque con los defaults ---
+        // EnemyInitializer los sobrescribirá si está presente y tiene un EnemyData.
+        InitializeAttackParameters(defaultAttackDamage, defaultAttackRate, defaultAttackRange);
+
+        ScheduleNextGrunt();
     }
+
+    // --- NUEVO: Método público para que EnemyInitializer configure los parámetros de ataque ---
+    public void InitializeAttackParameters(int damage, float rate, float range)
+    {
+        currentAttackDamage = damage;
+        currentAttackRate = rate;
+        // El rango de ataque se establece en el NavMeshAgent.stoppingDistance
+        if (agent != null)
+        {
+            agent.stoppingDistance = range;
+        }
+        Debug.Log($"{gameObject.name} AI params: Dmg={currentAttackDamage}, Rate={currentAttackRate}, Range(StopDist)={range}");
+    }
+
 
     void Update()
     {
-        // Si no tenemos referencia al jugador, no hacer nada
-        if (playerTransform == null) return;
+        if (playerTransform == null || !agent.isActiveAndEnabled || !agent.isOnNavMesh) return;
 
-        // Optimización: Solo actualizamos la lógica de la IA cada 'updateRate' segundos
-        if (Time.time - lastUpdateTime < updateRate)
-            return; // Salir si no ha pasado suficiente tiempo
+        if (Time.time < nextAiUpdateTime) return;
+        nextAiUpdateTime = Time.time + aiUpdateRate;
 
-        lastUpdateTime = Time.time;
-
-        // --- Lógica de Comportamiento Simple ---
-
-        // Calcular distancia al jugador
         float distanceToPlayer = Vector3.Distance(transform.position, playerTransform.position);
 
-        // --- Estado de Persecución (Chasing) ---
         if (distanceToPlayer <= detectionRange)
         {
-            // Establecer el destino del agente a la posición actual del jugador
             agent.SetDestination(playerTransform.position);
 
-            // Si el agente se ha detenido porque ha llegado cerca del jugador (dentro de stoppingDistance)
-            if (agent.remainingDistance <= agent.stoppingDistance && !agent.pathPending)
+            // Comprobar si está en rango de ataque (usando stoppingDistance que refleja currentAttackRange)
+            // agent.remainingDistance puede ser un poco inestable, así que también comprobamos distanceToPlayer
+            if (distanceToPlayer <= agent.stoppingDistance && !agent.pathPending)
             {
-                // --- LÓGICA DE ATAQUE ---
                 Attack();
             }
         }
+        // else { /* Lógica de Patrulla Futura */ }
+
+        HandleIdleGrunts();
     }
 
     void Attack()
     {
-        // Comprobar cadencia de ataque
-        if (Time.time < timeSinceLastAttack + attackRate)
-            return;
+        if (Time.time < timeSinceLastAttack + currentAttackRate) return; // Usar currentAttackRate
 
-        // Infligir daño al jugador
-        if (playerHealthManager != null)
+        LookAtPlayer(); // Mirar primero, luego intentar atacar
+
+        // Asegurar que sigamos en rango después de girar (opcional, pero puede ser bueno)
+        if (Vector3.Distance(transform.position, playerTransform.position) <= agent.stoppingDistance + 0.1f) // Pequeño umbral
         {
-            playerHealthManager.TakeDamage(attackDamage);
-            // (Opcional) Aquí podrías reproducir un sonido o animación de ataque:
-            // AudioSource.PlayClipAtPoint(attackSound, transform.position);
+            if (attackSound != null && audioSource != null && !audioSource.isPlaying)
+            {
+                audioSource.PlayOneShot(attackSound);
+            }
+
+            if (playerHealthManager != null)
+            {
+                playerHealthManager.TakeDamage(currentAttackDamage); // Usar currentAttackDamage
+            }
+            timeSinceLastAttack = Time.time;
         }
-
-        // Actualizar el tiempo del último ataque
-        timeSinceLastAttack = Time.time;
-
-        // Seguir mirando al jugador mientras ataca
-        LookAtPlayer();
     }
 
     void LookAtPlayer()
     {
-        // Hacer que el enemigo mire hacia el jugador (solo en el eje Y)
         Vector3 direction = (playerTransform.position - transform.position).normalized;
         Quaternion lookRotation = Quaternion.LookRotation(new Vector3(direction.x, 0, direction.z));
-        transform.rotation = Quaternion.Slerp(
-            transform.rotation,
-            lookRotation,
-            Time.deltaTime * agent.angularSpeed / 40
-        ); // Suavizar la rotación
+        // Para rotación instantánea: transform.rotation = lookRotation;
+        // Para rotación suave (asegúrate de que agent.angularSpeed tenga un valor razonable):
+        transform.rotation = Quaternion.RotateTowards(transform.rotation, lookRotation, agent.angularSpeed * Time.deltaTime);
     }
 
-    // --- (Opcional) Visualización del Rango en el Editor ---
+    void HandleIdleGrunts()
+    {
+        if (Time.time >= nextGruntTime && audioSource != null && !audioSource.isPlaying && idleGrunts.Count > 0)
+        {
+            int randomIndex = Random.Range(0, idleGrunts.Count);
+            audioSource.PlayOneShot(idleGrunts[randomIndex]);
+            ScheduleNextGrunt();
+        }
+    }
+
+    void ScheduleNextGrunt()
+    {
+        nextGruntTime = Time.time + Random.Range(minTimeBetweenGrunts, maxTimeBetweenGrunts);
+    }
+
     void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(transform.position, detectionRange);
         Gizmos.color = Color.red;
-        Gizmos.DrawWireSphere(transform.position, attackRange);
+        // Dibujar usando el stoppingDistance actual del agente, que refleja el attackRange
+        if (agent != null) Gizmos.DrawWireSphere(transform.position, agent.stoppingDistance);
+        else Gizmos.DrawWireSphere(transform.position, defaultAttackRange); // Fallback si el agente no está listo
     }
 }

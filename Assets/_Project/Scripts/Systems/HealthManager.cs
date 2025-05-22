@@ -1,50 +1,70 @@
 using UnityEngine;
-using System; // Necesario para Action (eventos)
+using System;
 
 public class HealthManager : MonoBehaviour
 {
-    [SerializeField] private float maxHealth = 100f;
+    [Header("Default Health Settings (Usado si no se inicializa desde otro script)")]
+    [SerializeField] private float initialMaxHealthValue = 100f;
     private float currentHealth;
+    private float maxHealth;
 
     [Header("Audio Feedback (Optional)")]
-    [SerializeField] private AudioClip damageSound; // Asigna tu sonido de daño aquí en el Inspector
-    // [SerializeField] private AudioClip deathSound;  // Podrías tener un sonido de muerte separado
+    [SerializeField] private AudioClip damageSound;
+    private AudioSource audioSource;
 
-    private AudioSource audioSource; // Referencia al componente AudioSource
+    // --- MODIFICADO: Evento OnDied ahora puede pasar el propio HealthManager ---
+    // Esto permite a los suscriptores acceder a cualquier información pública del HealthManager
+    // o de componentes en el mismo GameObject, como un EnemyData si lo guardamos aquí.
+    public event Action<HealthManager> OnDied; // Pasa la instancia de este HealthManager
 
-    // Eventos para notificar a otros scripts sobre cambios en la salud o muerte
-    // Action<float>: Evento que pasa la vida actual como parámetro
-    // Action: Evento simple sin parámetros
     public event Action<float> OnHealthChanged;
-    public event Action OnDied;
 
-    public float CurrentHealth => currentHealth; // Propiedad pública de solo lectura (getter)
-    public float MaxHealth => maxHealth;       // Propiedad pública de solo lectura
-    public bool IsDead => currentHealth <= 0; // Propiedad que calcula si está muerto
 
-    
+    // --- NUEVO: Referencia opcional a EnemyData para la recompensa ---
+    // EnemyInitializer se encargará de asignar esto.
+    private EnemyData associatedEnemyData;
+
+
+    public float CurrentHealth => currentHealth;
+    public float MaxHealth => maxHealth;
+    public bool IsDead => currentHealth <= 0;
+    public EnemyData GetAssociatedEnemyData() => associatedEnemyData; // Getter para el EnemyData
 
 
     void Awake()
     {
-        // Inicializar la vida al máximo al despertar el objeto
-        currentHealth = maxHealth;
-
-        // Obtener la referencia al AudioSource
-        audioSource = GetComponent<AudioSource>();
-        if (audioSource == null)
+        if (maxHealth <= 0)
         {
-            // Si no está, y hemos puesto RequireComponent, Unity lo añadirá.
-            // Pero es buena práctica tener una advertencia si olvidamos el RequireComponent.
-            Debug.LogWarning($"HealthManager en {gameObject.name} no tiene un AudioSource. El sonido de daño no se reproducirá.", this);
+            SetInitialHealth(initialMaxHealthValue, initialMaxHealthValue);
         }
 
+        audioSource = GetComponent<AudioSource>();
+        if (audioSource == null && damageSound != null) // Solo advertir si hay un damageSound asignado pero no AudioSource
+        {
+            Debug.LogWarning($"HealthManager en {gameObject.name} tiene un 'damageSound' asignado pero no tiene AudioSource. El sonido de daño no se reproducirá.", this);
+        }
     }
 
-    /// <summary>
-    /// Aplica daño a esta entidad.
-    /// </summary>
-    /// <param name="damageAmount">La cantidad de daño a aplicar (debe ser positiva).</param>
+    public void SetInitialHealth(float health, float maxHealthValue)
+    {
+        this.maxHealth = Mathf.Max(1f, maxHealthValue);
+        this.currentHealth = Mathf.Clamp(health, 0f, this.maxHealth);
+        OnHealthChanged?.Invoke(this.currentHealth);
+        // Debug.Log($"{gameObject.name} salud inicializada a {currentHealth}/{this.maxHealth}");
+    }
+
+    // --- NUEVO: Método para que EnemyInitializer asigne el EnemyData ---
+    public void SetEnemyDataReference(EnemyData data)
+    {
+        associatedEnemyData = data;
+        // Podrías querer actualizar maxHealth aquí también si el EnemyData es la fuente de verdad
+        // y SetInitialHealth no fue llamado por el initializer con los datos del EnemyData.
+        // Pero si EnemyInitializer llama a SetInitialHealth DESPUÉS de asignar enemyData,
+        // o si llama a SetInitialHealth con los valores de enemyData, no es necesario aquí.
+        // Por ahora, asumimos que EnemyInitializer gestiona SetInitialHealth correctamente.
+    }
+
+
     public void TakeDamage(float damageAmount)
     {
         if (IsDead || damageAmount <= 0) return;
@@ -52,16 +72,10 @@ public class HealthManager : MonoBehaviour
         currentHealth -= damageAmount;
         currentHealth = Mathf.Max(currentHealth, 0f);
 
-        Debug.Log($"{gameObject.name} recibió {damageAmount} de daño. Vida restante: {currentHealth}");
-
-        // --- Reproducir Sonido de Daño ---
-        if (damageSound != null && audioSource != null)
+        if (damageSound != null && audioSource != null && audioSource.isActiveAndEnabled)
         {
-            // audioSource.PlayOneShot(damageSound); // PlayOneShot es bueno para efectos rápidos
-            // O si quieres más control (ej. sobre el volumen del clip específico):
-            audioSource.PlayOneShot(damageSound, 1.0f); // El segundo parámetro es volumeScale
+            audioSource.PlayOneShot(damageSound, 1.0f);
         }
-        // --- Fin Sonido de Daño ---
 
         OnHealthChanged?.Invoke(currentHealth);
 
@@ -71,47 +85,22 @@ public class HealthManager : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Sana a esta entidad.
-    /// </summary>
-    /// <param name="healAmount">La cantidad a curar (debe ser positiva).</param>
     public void Heal(float healAmount)
     {
-        if (IsDead || healAmount <= 0)
-        {
-            return;
-        }
-
+        // ... (sin cambios) ...
+        if (IsDead || healAmount <= 0) return;
         currentHealth += healAmount;
-        currentHealth = Mathf.Min(currentHealth, maxHealth); // Asegurar que la vida no supere el máximo
-
-        Debug.Log($"{gameObject.name} se curó {healAmount}. Vida actual: {currentHealth}");
-
-        // Lanzar el evento de cambio de salud
+        currentHealth = Mathf.Min(currentHealth, maxHealth);
         OnHealthChanged?.Invoke(currentHealth);
     }
 
-    // Método privado llamado cuando la vida llega a 0
     private void Die()
     {
-        Debug.Log($"{gameObject.name} ha muerto.");
+        // Debug.Log($"{gameObject.name} ha muerto.");
 
-        // Lanzar el evento de muerte para que otros scripts reaccionen
-        OnDied?.Invoke();
+        // --- MODIFICADO: Invocar OnDied pasando 'this' (la instancia actual de HealthManager) ---
+        OnDied?.Invoke(this); // 'this' se refiere a este componente HealthManager
 
-        // --- Lógica de muerte básica (podemos mejorarla después) ---
-        // Por ahora, simplemente desactivaremos el objeto para que desaparezca.
-        // Más adelante podríamos instanciar efectos, activar ragdoll, etc.
-        // Destroy(gameObject, 2f); // Destruye el objeto después de 2 segundos
-        gameObject.SetActive(false); // O simplemente lo desactiva
-    }
-
-    // (Opcional: Método para establecer la vida inicial si es necesario desde fuera)
-    public void SetInitialHealth(float initialHealth, float initialMaxHealth)
-    {
-        maxHealth = Mathf.Max(1f, initialMaxHealth); // Max health debe ser al menos 1
-        currentHealth = Mathf.Clamp(initialHealth, 0f, maxHealth);
-        // Lanzar evento por si la UI necesita actualizarse al inicio
-        OnHealthChanged?.Invoke(currentHealth);
+        gameObject.SetActive(false); // O Destroy(gameObject);
     }
 }

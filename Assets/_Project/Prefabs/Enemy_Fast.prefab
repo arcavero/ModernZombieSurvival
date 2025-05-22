@@ -19,7 +19,7 @@ GameObject:
   - component: {fileID: 9215479466394888196}
   - component: {fileID: -2209985681061867839}
   m_Layer: 0
-  m_Name: Enemy
+  m_Name: Enemy_Fast
   m_TagString: Enemy
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -72,7 +72,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: d2f44a888b1494836a0a47bfbef94a7a, type: 2}
+  - {fileID: 2100000, guid: 9509483e6fa2b234aae5c8898ab7d8b3, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -293,7 +293,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fdbaa952d7fc66545958059af9a4bb17, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  enemyData: {fileID: 11400000, guid: cc4ad208104935b4aa1cf3ca9e6d4139, type: 2}
+  enemyData: {fileID: 11400000, guid: 2010c0a31c3ed89488da06f2ce498f83, type: 2}
 --- !u!1001 &1420215226026508793
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -512,8 +512,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   fillImage: {fileID: 0}
+  linkedHealthManager: {fileID: 0}
   hideWhenFull: 1
-  healthToActuallyHide: 0.99
 --- !u!224 &5231856542675072098 stripped
 RectTransform:
   m_CorrespondingSourceObject: {fileID: 6570426363950019995, guid: dec10f2ab278648d4b23f7a4b9521d8e, type: 3}

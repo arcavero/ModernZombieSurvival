@@ -6,26 +6,41 @@ using TMPro;
 public class EnemySpawner : MonoBehaviour
 {
     [System.Serializable]
+    public class EnemySpawnEntry
+    {
+        [Tooltip("Prefab del enemigo a spawnear.")]
+        public GameObject enemyPrefab;
+        [Tooltip("Cuántos de ESTE tipo de enemigo spawnear en esta oleada.")]
+        [Min(1)]
+        public int count = 1;
+    }
+
+    [System.Serializable]
     public class Wave
     {
         public string name;
-        public int numberOfEnemies;
+        [Tooltip("Lista de los tipos de enemigos y cuántos de cada uno para esta oleada.")]
+        public List<EnemySpawnEntry> enemiesInWave;
+        [Tooltip("Tiempo entre cada enemigo individual spawneado DENTRO de esta oleada.")]
         public float timeBetweenIndividualSpawns = 1f;
     }
 
     [Header("References")]
+    [Tooltip("Prefab de enemigo por defecto si una entrada de oleada no tiene uno asignado (opcional).")]
     [SerializeField] private GameObject defaultEnemyPrefab;
+    [Tooltip("El GameObject padre que contiene todos los Transforms de los puntos de spawn.")]
     [SerializeField] private Transform spawnPointsContainer;
 
     [Header("Wave Settings")]
+    [Tooltip("Define las oleadas del juego.")]
     [SerializeField] private Wave[] waves;
+    [Tooltip("Tiempo en segundos de descanso entre el final de una oleada y el inicio de la siguiente.")]
     [SerializeField] private float timeBetweenWaves = 5f;
     private int currentWaveIndex = 0;
 
-    private int enemiesToSpawnInCurrentWave;
     private int enemiesAliveFromCurrentWave;
 
-    [Header("UI Feedback (Optional)")]
+    [Header("UI Feedback (Opcional)")]
     [SerializeField] private TextMeshProUGUI waveTextElement;
     [SerializeField] private TextMeshProUGUI enemiesRemainingTextElement;
 
@@ -34,38 +49,45 @@ public class EnemySpawner : MonoBehaviour
 
     void Awake()
     {
-        // Validaciones...
-        if (defaultEnemyPrefab == null)
+        if (spawnPointsContainer == null) { Debug.LogError("ERROR: Spawn Points Container no asignado!", this); enabled = false; return; }
+        if (waves == null || waves.Length == 0) { Debug.LogError("ERROR: No hay oleadas definidas!", this); enabled = false; return; }
+
+        bool hasValidWaveData = false;
+        foreach (var wave in waves)
         {
-            Debug.LogError("ERROR: Default Enemy Prefab no está asignado!", this);
-            enabled = false;
-            return;
+            if (wave.enemiesInWave != null && wave.enemiesInWave.Count > 0)
+            {
+                foreach (var entry in wave.enemiesInWave)
+                {
+                    if (entry.enemyPrefab != null)
+                    {
+                        hasValidWaveData = true; break;
+                    }
+                }
+            }
+            if (hasValidWaveData) break;
         }
-        if (spawnPointsContainer == null)
+        if (!hasValidWaveData && defaultEnemyPrefab == null)
         {
-            Debug.LogError("ERROR: Spawn Points Container no está asignado!", this);
-            enabled = false;
-            return;
-        }
-        if (waves == null || waves.Length == 0)
-        {
-            Debug.LogError("ERROR: No hay oleadas definidas!", this);
-            enabled = false;
-            return;
+            Debug.LogError("ERROR: Ninguna oleada tiene enemigos definidos Y no hay Default Enemy Prefab!", this);
+            enabled = false; return;
         }
 
-        // Poblar puntos de spawn...
+        if (waveTextElement == null) Debug.LogWarning("Wave Text Element no asignado.", this);
+        if (enemiesRemainingTextElement == null) Debug.LogWarning("Enemies Remaining Text Element no asignado.", this);
+
         PopulateSpawnPointsFromContainer();
         if (activeSpawnPoints.Count == 0)
         {
-            Debug.LogError("ERROR: No hay puntos de spawn activos!", this);
+            Debug.LogError("ERROR: No hay puntos de spawn activos encontrados!", this);
             enabled = false;
         }
     }
 
     void Start()
     {
-        waveSpawnCoroutine = StartCoroutine(WaveSpawnRoutine());
+        if (enabled)
+            waveSpawnCoroutine = StartCoroutine(WaveSpawnRoutine());
     }
 
     void OnDisable()
@@ -80,37 +102,56 @@ public class EnemySpawner : MonoBehaviour
         foreach (Transform child in spawnPointsContainer)
             if (child.gameObject.activeSelf)
                 activeSpawnPoints.Add(child);
-
         Debug.Log($"Encontrados {activeSpawnPoints.Count} puntos de spawn activos.");
     }
 
     private IEnumerator WaveSpawnRoutine()
     {
-        // Delay inicial antes de la primera oleada
+        Debug.Log("Enemy Spawner (Wave System con Mix de Enemigos y Recompensas) iniciado.");
         yield return new WaitForSeconds(timeBetweenWaves);
 
         while (currentWaveIndex < waves.Length)
         {
             Wave currentWave = waves[currentWaveIndex];
-            enemiesToSpawnInCurrentWave = currentWave.numberOfEnemies;
             enemiesAliveFromCurrentWave = 0;
+
+            int totalEnemiesThisWave = 0;
+            foreach (EnemySpawnEntry entry in currentWave.enemiesInWave)
+            {
+                totalEnemiesThisWave += entry.count;
+            }
+            enemiesAliveFromCurrentWave = totalEnemiesThisWave;
             UpdateWaveUI();
 
-            Debug.Log($"-- Iniciando Oleada {currentWaveIndex + 1} --");
+            Debug.Log($"-- Iniciando Oleada {currentWaveIndex + 1} {(string.IsNullOrEmpty(currentWave.name) ? "" : $": {currentWave.name}")} con {totalEnemiesThisWave} enemigos en total --");
 
-            // Spawneo
-            for (int i = 0; i < currentWave.numberOfEnemies; i++)
+            foreach (EnemySpawnEntry entry in currentWave.enemiesInWave)
             {
-                SpawnSingleEnemyForCurrentWave();
-                enemiesToSpawnInCurrentWave--;
+                GameObject prefabToUse = entry.enemyPrefab != null ? entry.enemyPrefab : defaultEnemyPrefab;
+                if (prefabToUse == null)
+                {
+                    Debug.LogWarning($"No hay prefab para una entrada en la oleada {currentWave.name}, saltando {entry.count} enemigos.");
+                    enemiesAliveFromCurrentWave -= entry.count;
+                    UpdateWaveUI();
+                    continue;
+                }
 
-                if (i < currentWave.numberOfEnemies - 1)
-                    yield return new WaitForSeconds(currentWave.timeBetweenIndividualSpawns);
+                for (int i = 0; i < entry.count; i++)
+                {
+                    SpawnSingleEnemy(prefabToUse);
+                    bool isLastEnemyOverall = (enemiesAliveFromCurrentWave <= 1 && i == entry.count - 1); // Simplificación
+
+                    if (!isLastEnemyOverall) // Solo esperar si no es el último absoluto de la tanda de la oleada
+                    {
+                        yield return new WaitForSeconds(currentWave.timeBetweenIndividualSpawns);
+                    }
+                }
             }
 
-            // Esperar hasta que todos los vivos mueran
             while (enemiesAliveFromCurrentWave > 0)
+            {
                 yield return null;
+            }
 
             Debug.Log($"-- Oleada {currentWaveIndex + 1} completada --");
             currentWaveIndex++;
@@ -122,54 +163,79 @@ public class EnemySpawner : MonoBehaviour
             }
             else
             {
+                Debug.Log("¡Todas las oleadas completadas!");
                 UpdateWaveUI(false, true);
                 enabled = false;
+                yield break;
             }
         }
     }
 
-    private void SpawnSingleEnemyForCurrentWave()
+    private void SpawnSingleEnemy(GameObject enemyPrefabToInstantiate)
     {
-        if (activeSpawnPoints.Count == 0)
+        if (activeSpawnPoints.Count == 0) { Debug.LogWarning("No hay puntos de spawn activos."); return; }
+        if (enemyPrefabToInstantiate == null) { Debug.LogWarning("Se intentó spawnear un prefab nulo."); return; }
+
+        Transform chosenSpawnPoint = activeSpawnPoints[Random.Range(0, activeSpawnPoints.Count)];
+        GameObject newEnemyGO = Instantiate(enemyPrefabToInstantiate, chosenSpawnPoint.position, chosenSpawnPoint.rotation);
+
+        if (!newEnemyGO.activeSelf) newEnemyGO.SetActive(true);
+        newEnemyGO.name = enemyPrefabToInstantiate.name + "_Wave" + (currentWaveIndex + 1) + "_" + Time.frameCount;
+
+        HealthManager enemyHealth = newEnemyGO.GetComponent<HealthManager>();
+        if (enemyHealth != null)
         {
-            Debug.LogWarning("No hay puntos de spawn activos.");
-            return;
+            // --- MODIFICADO: Asegurarse de que el manejador ahora espera HealthManager ---
+            enemyHealth.OnDied += HandleEnemyDeathInWave;
         }
-
-        var spawnPt = activeSpawnPoints[Random.Range(0, activeSpawnPoints.Count)];
-        GameObject newEnemyGO = Instantiate(defaultEnemyPrefab, spawnPt.position, spawnPt.rotation);
-
-        // ** Asegurarnos de que esté activo**
-        if (!newEnemyGO.activeSelf)
-        {
-            newEnemyGO.SetActive(true);
-            Debug.LogWarning($"Enemy instanciado en inactivo, activando durante spawn.");
-        }
-
-        newEnemyGO.name = defaultEnemyPrefab.name + "_Wave" + (currentWaveIndex + 1) + "_" + Time.frameCount;
-        Debug.Log($"[Spawner] Spawned enemy at {spawnPt.position}");
-        Debug.DrawRay(spawnPt.position, Vector3.up * 2f, Color.red, 2f);
-
-        enemiesAliveFromCurrentWave++;
-        UpdateWaveUI();
-
-        var health = newEnemyGO.GetComponent<HealthManager>();
-        if (health != null)
-            health.OnDied += HandleEnemyDeathInWave;
         else
-            Debug.LogWarning($"El prefab {newEnemyGO.name} no tiene HealthManager.", newEnemyGO);
+        {
+            Debug.LogWarning($"El prefab {newEnemyGO.name} no tiene HealthManager. La oleada podría no progresar.", newEnemyGO);
+            enemiesAliveFromCurrentWave = Mathf.Max(0, enemiesAliveFromCurrentWave - 1);
+            UpdateWaveUI();
+        }
     }
 
-    private void HandleEnemyDeathInWave()
+    // --- MODIFICADO: HandleEnemyDeathInWave ahora recibe HealthManager ---
+    private void HandleEnemyDeathInWave(HealthManager deceasedEnemyHealthManager)
     {
         enemiesAliveFromCurrentWave = Mathf.Max(0, enemiesAliveFromCurrentWave - 1);
-        Debug.Log($"Un enemigo murió. Vivos: {enemiesAliveFromCurrentWave}");
+        // Debug.Log($"Un enemigo murió. Vivos en oleada: {enemiesAliveFromCurrentWave}");
         UpdateWaveUI();
+
+        // --- NUEVO: Otorgar moneda al jugador ---
+        if (deceasedEnemyHealthManager != null)
+        {
+            EnemyData data = deceasedEnemyHealthManager.GetAssociatedEnemyData(); // Usar el getter
+            if (data != null)
+            {
+                if (CurrencyManager.Instance != null) // Verificar que el CurrencyManager exista
+                {
+                    CurrencyManager.Instance.AddCurrency(data.currencyAwardedOnDeath);
+                }
+                else
+                {
+                    Debug.LogWarning("CurrencyManager.Instance es nulo. No se pudo añadir moneda.");
+                }
+            }
+            else
+            {
+                Debug.LogWarning($"Enemigo ({deceasedEnemyHealthManager.gameObject.name}) murió pero no tenía EnemyData para recompensa.");
+            }
+        }
+
+        // --- NUEVO/IMPORTANTE: Desuscribirse del evento ---
+        // Es buena práctica desuscribirse para evitar referencias fantasma si el HealthManager
+        // no se destruyera o si el EnemySpawner persistiera de alguna forma.
+        if (deceasedEnemyHealthManager != null)
+        {
+            deceasedEnemyHealthManager.OnDied -= HandleEnemyDeathInWave;
+        }
     }
 
-    private void UpdateWaveUI(bool betweenWaves = false, bool allCompleted = false)
+    private void UpdateWaveUI(bool betweenWaves = false, bool allWavesCompleted = false)
     {
-        if (allCompleted)
+        if (allWavesCompleted)
         {
             if (waveTextElement) waveTextElement.text = "¡TODAS LAS OLEADAS SUPERADAS!";
             if (enemiesRemainingTextElement) enemiesRemainingTextElement.text = "";

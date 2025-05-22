@@ -1,56 +1,51 @@
+// EnemyHealthUI.cs
 using UnityEngine;
-using UnityEngine.UI; // Todavía necesitamos esto para Image
+using UnityEngine.UI; // Necesario para Image
 
 public class EnemyHealthUI : MonoBehaviour
 {
-    // [SerializeField] private Slider healthSlider; // <-- ELIMINA ESTA LÍNEA
     [Header("UI References")]
-    [SerializeField] private Image fillImage; // <-- AÑADE ESTA LÍNEA
+    [SerializeField] private Image fillImage;
 
     [Header("References")]
-    [SerializeField] private HealthManager linkedHealthManager;
+    // No necesitamos serializar linkedHealthManager si lo pasamos en Setup
+    private HealthManager linkedHealthManager; // Hacerlo privado
     private Transform cameraTransform;
 
     [Header("Settings")]
     [SerializeField] private bool hideWhenFull = true;
+    [SerializeField] private float healthToActuallyHide = 0.99f; // Para evitar que se oculte por errores de precisión
 
     void Awake()
     {
         if (fillImage == null)
         {
-            // Podrías intentar encontrarla por nombre si la estructura es fija
-            // o asegurarte de que esté asignada en el Inspector del prefab.
-            // Por ahora, asumimos que se asignará en el Inspector del prefab.
-            Debug.LogError("Fill Image no asignado en EnemyHealthUI!", this);
-            enabled = false;
-            return;
+            fillImage = GetComponentInChildren<Image>(); // Intenta encontrarlo en hijos si es una estructura de Slider
+            if (fillImage == null)
+            {
+                Debug.LogError("Fill Image no asignado ni encontrado en hijos en EnemyHealthUI!", this);
+                enabled = false; return;
+            }
         }
 
-        if (Camera.main != null)
-        {
-            cameraTransform = Camera.main.transform;
-        }
-        else
-        {
-            Debug.LogError("No se encontró la cámara principal (MainCamera tag).", this);
-        }
+        if (Camera.main != null) { cameraTransform = Camera.main.transform; }
+        else { Debug.LogError("No se encontró la cámara principal (MainCamera tag). La barra de vida flotante podría no orientarse.", this); }
     }
 
-    public void Setup(HealthManager healthManager)
+    public void Setup(HealthManager healthManagerToLink) // Renombrar parámetro para claridad
     {
-        linkedHealthManager = healthManager;
+        linkedHealthManager = healthManagerToLink;
         if (linkedHealthManager == null)
         {
             Debug.LogError("Se intentó configurar EnemyHealthUI sin un HealthManager válido.", this);
-            gameObject.SetActive(false);
-            return;
+            gameObject.SetActive(false); return;
         }
 
+        // Suscribirse a los eventos del HealthManager vinculado
         linkedHealthManager.OnHealthChanged += UpdateUI;
-        linkedHealthManager.OnDied += HandleDeath;
+        linkedHealthManager.OnDied += HandleDeath; // La suscripción sigue igual
 
         InitializeUI();
-        // La visibilidad inicial se maneja en InitializeUI y UpdateUI
     }
 
     void OnDestroy()
@@ -64,9 +59,8 @@ public class EnemyHealthUI : MonoBehaviour
 
     void LateUpdate()
     {
-        if (cameraTransform != null)
+        if (cameraTransform != null && gameObject.activeSelf) // Solo rotar si está activo y hay cámara
         {
-            // Mantener la barra mirando a la cámara
             transform.rotation = cameraTransform.rotation;
         }
     }
@@ -75,17 +69,15 @@ public class EnemyHealthUI : MonoBehaviour
     {
         if (linkedHealthManager != null && fillImage != null)
         {
-            // Actualizar la cantidad de llenado
             fillImage.fillAmount = linkedHealthManager.CurrentHealth / linkedHealthManager.MaxHealth;
             UpdateVisibility();
         }
     }
 
-    private void UpdateUI(float currentHealth) // Recibe la vida actual del evento
+    private void UpdateUI(float currentHealth)
     {
         if (fillImage != null && linkedHealthManager != null)
         {
-            // Calcular la proporción y actualizar fillAmount
             fillImage.fillAmount = currentHealth / linkedHealthManager.MaxHealth;
             UpdateVisibility();
         }
@@ -93,17 +85,29 @@ public class EnemyHealthUI : MonoBehaviour
 
     private void UpdateVisibility()
     {
-        if (linkedHealthManager == null) return;
+        if (linkedHealthManager == null || fillImage == null) return;
 
-        bool shouldBeActive = !hideWhenFull || linkedHealthManager.CurrentHealth < linkedHealthManager.MaxHealth;
-        if (gameObject.activeSelf != shouldBeActive && !linkedHealthManager.IsDead)
+        // Si está muerto, siempre oculto (manejado por HandleDeath)
+        if (linkedHealthManager.IsDead)
+        {
+            gameObject.SetActive(false);
+            return;
+        }
+
+        // Determinar si debe estar activo
+        bool shouldBeActive = !hideWhenFull || fillImage.fillAmount < healthToActuallyHide; // Usar un umbral pequeño
+
+        if (gameObject.activeSelf != shouldBeActive)
         {
             gameObject.SetActive(shouldBeActive);
         }
     }
 
-    private void HandleDeath()
+    // --- MODIFICADO: Añadir el parámetro HealthManager ---
+    private void HandleDeath(HealthManager deceasedEnemyHealthManager) // 'deceasedEnemyHealthManager' es el HealthManager del enemigo que murió
     {
+        // No necesitamos usar el parámetro aquí ya que este script está en la UI del propio enemigo
+        // y ya tiene 'linkedHealthManager'. Pero la firma del método debe coincidir.
         gameObject.SetActive(false);
     }
 }
