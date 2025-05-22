@@ -1,234 +1,284 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
-using System.Collections; // Necesario para la corutina de disparo o temporizador
-using TMPro;                    // <- ¡Asegúrate de tener esto!
+using System.Collections;
+using System.Collections.Generic; // Necesario para List
+using TMPro;
 
-// Ya no necesitamos RequireComponent para Camera aquí
 public class PlayerShooting : MonoBehaviour
 {
-    // Añadimos un campo para asignar la cámara en el Inspector
     [Header("Setup")]
     [SerializeField] private Camera playerCamera;
-    // Referencia al ScriptableObject que define el arma actual
-    [SerializeField] private WeaponData currentWeaponData;
+    // --- MODIFICADO: Lista de armas iniciales en lugar de una sola ---
+    [Tooltip("Armas con las que el jugador empieza. La primera es la equipada por defecto.")]
+    [SerializeField] private List<WeaponData> startingWeapons;
+    private WeaponData currentWeaponData; // El arma actualmente equipada
+    private int currentWeaponIndex = 0;   // Índice del arma actual en la lista
 
     [Header("UI")]
-    // Asigna aquí el TextMeshPro de la munición
     [SerializeField] private TextMeshProUGUI ammoTextElement;
+    // (Opcional) Podrías añadir un TextMeshProUGUI para el nombre del arma
+    // [SerializeField] private TextMeshProUGUI weaponNameTextElement;
 
-    // --- AÑADIR ESTOS CAMPOS PARA EL FEEDBACK DE IMPACTO ---
-    [Header("Impact Feedback (Flesh Only)")]
-    [SerializeField] private AudioClip impactFleshSound;
-    [SerializeField] private GameObject impactFleshVFXPrefab;
-    // --- FIN DE CAMPOS AÑADIDOS ---
+    // --- MODIFICADO: Estos podrían ser defaults si el WeaponData no especifica los suyos ---
+    [Header("Default Impact Feedback (Flesh Only)")]
+    [Tooltip("Sonido de impacto en carne por defecto si el arma no tiene uno específico.")]
+    [SerializeField] private AudioClip defaultImpactFleshSound;
+    [Tooltip("VFX de impacto en carne por defecto si el arma no tiene uno específico.")]
+    [SerializeField] private GameObject defaultImpactFleshVFXPrefab;
 
-    // Estado interno del arma
+    // Estado interno del arma (específico del arma actualmente equipada)
     private int currentAmmoInMagazine;
-    private int currentTotalAmmo; // Balas en reserva
+    private int currentTotalAmmo;
     private bool isReloading = false;
-
-    // Variables para la cadencia de fuego
-    private bool canShoot = true;
     private float nextTimeToShoot = 0f;
 
+    // --- NUEVO: Diccionario para guardar el estado de munición de cada arma ---
+    // Esto es clave para que cada arma recuerde su munición.
+    // La Key es el ScriptableObject WeaponData, Value es una clase/struct con el estado.
+    private class WeaponAmmoState
+    {
+        public int ammoInMagazine;
+        public int totalAmmoReserve;
+        public WeaponAmmoState(int mag, int reserve) { ammoInMagazine = mag; totalAmmoReserve = reserve; }
+    }
+    private Dictionary<WeaponData, WeaponAmmoState> weaponStates = new Dictionary<WeaponData, WeaponAmmoState>();
+
+
     private PlayerInputActions playerInputActions;
-    private bool fireActionPerformed = false;
+    // 'fireActionPerformed' ya no es necesaria con el actual 'TryShoot' llamado desde 'performed'
 
     void Awake()
     {
-        // VALIDACIÓN IMPORTANTE: Asegurarse de que la cámara está asignada
         if (playerCamera == null)
         {
-            Debug.LogError("Player Camera no está asignada en el script PlayerShooting!", this);
-            // Intentar encontrarla como hijo (común en setups FPS)
-            playerCamera = GetComponentInChildren<Camera>();
-            if (playerCamera == null)
+            Debug.LogError("Player Camera no está asignada en PlayerShooting!", this);
+            playerCamera = GetComponentInChildren<Camera>(true);
+            if (playerCamera == null) { Debug.LogError("No se pudo encontrar Camera. PlayerShooting no funcionará.", this); enabled = false; return; }
+        }
+
+        // --- MODIFICADO: Validar startingWeapons en lugar de currentWeaponData ---
+        if (startingWeapons == null || startingWeapons.Count == 0)
+        {
+            Debug.LogError("ERROR: No hay Starting Weapons asignadas en PlayerShooting!", this);
+            enabled = false; return;
+        }
+        // Asegurarse de que todas las armas en la lista inicial no sean nulas
+        for (int i = 0; i < startingWeapons.Count; i++)
+        {
+            if (startingWeapons[i] == null)
             {
-                Debug.LogError("No se pudo encontrar una Camera en los hijos. ¡El script PlayerShooting no funcionará!", this);
-                enabled = false; // Desactivar script
-                return;
-            }
-            else
-            {
-                Debug.LogWarning("Player Camera no estaba asignada, se encontró automáticamente en un hijo.", this);
+                Debug.LogError($"ERROR: Starting Weapon en el índice {i} es nula!", this);
+                enabled = false; return;
             }
         }
 
-        if (currentWeaponData == null)
-        {
-            Debug.LogError("ERROR: No hay Weapon Data asignado en PlayerShooting!", this);
-            enabled = false; // No podemos disparar sin datos de arma
-            return;
-        }
-
-        if (ammoTextElement == null)
-        {
-            Debug.LogWarning("Ammo Text Element no asignado en PlayerShooting. La UI no se actualizará.", this);
-        }
+        if (ammoTextElement == null) Debug.LogWarning("Ammo Text Element no asignado. La UI no se actualizará.", this);
 
         playerInputActions = new PlayerInputActions();
-
-        // --- Suscripción a Input ---
-        // Para disparo simple (un clic, un disparo):
         playerInputActions.Player.Fire.performed += ctx => TryShoot();
-        // Nueva suscripción para recargar
         playerInputActions.Player.Reload.performed += ctx => StartReload();
 
+        // --- NUEVO: Suscripción a inputs para cambiar de arma ---
+        playerInputActions.Player.SwitchWeapon1.performed += ctx => EquipWeaponByIndex(0); // Tecla 1
+        playerInputActions.Player.SwitchWeapon2.performed += ctx => EquipWeaponByIndex(1); // Tecla 2
     }
 
     void Start()
     {
-        // Inicializar munición al empezar (o al cambiar de arma)
-        currentAmmoInMagazine = currentWeaponData.magazineSize;
-        currentTotalAmmo = currentWeaponData.maxTotalAmmo;
-        UpdateAmmoUI();
-        isReloading = false; // Asegurarse de no empezar recargando
+        // --- NUEVO: Inicializar el estado de munición para todas las armas iniciales ---
+        foreach (WeaponData weapon in startingWeapons)
+        {
+            if (!weaponStates.ContainsKey(weapon))
+            {
+                weaponStates.Add(weapon, new WeaponAmmoState(weapon.magazineSize, weapon.maxTotalAmmo));
+            }
+        }
+
+        // Equipar la primera arma de la lista al inicio
+        EquipWeaponByIndex(0); // Llama a la nueva función para manejar el equipamiento
+        isReloading = false;
     }
 
     void OnEnable()
     {
-        playerInputActions.Player.Fire.Enable();
-        playerInputActions.Player.Reload.Enable(); // Activar acción de recarga
-        isReloading = false; // Resetear estado si se reactiva el componente
+        playerInputActions.Player.Enable(); // Habilita todo el Action Map "Player"
+        isReloading = false;
     }
 
     void OnDisable()
     {
-        playerInputActions.Player.Fire.Disable();
-        playerInputActions.Player.Reload.Disable(); // Desactivar acción de recarga
+        playerInputActions.Player.Disable(); // Deshabilita todo el Action Map "Player"
     }
 
-    // Intenta disparar, respetando la cadencia
-    private void TryShoot()
+    // --- NUEVA FUNCIÓN: Para equipar un arma por su índice en la lista 'startingWeapons' ---
+    private void EquipWeaponByIndex(int weaponIndex)
     {
-        // No disparar si está recargando o si no ha pasado el tiempo de cadencia
-        if (isReloading || Time.time < nextTimeToShoot)
+        if (isReloading)
         {
+            // Opcional: podrías cancelar la recarga aquí si lo deseas
+            // StopCoroutine("ReloadCoroutine"); // Necesitaría guardar la referencia a la corutina
+            // isReloading = false;
+            Debug.Log("No se puede cambiar de arma mientras se recarga.");
             return;
         }
 
-        // Comprobar si hay balas en el cargador
+        if (weaponIndex < 0 || weaponIndex >= startingWeapons.Count)
+        {
+            Debug.LogWarning($"Índice de arma {weaponIndex} fuera de rango.");
+            return;
+        }
+
+        WeaponData newWeapon = startingWeapons[weaponIndex];
+        if (newWeapon == null)
+        {
+            Debug.LogError($"Arma en el índice {weaponIndex} es nula en startingWeapons.");
+            return;
+        }
+
+        // Si ya es el arma actual, no hacer nada (a menos que quieras una animación de re-equipar)
+        if (currentWeaponData == newWeapon && currentWeaponIndex == weaponIndex && !isReloading) return;
+
+
+        currentWeaponIndex = weaponIndex;
+        currentWeaponData = newWeapon;
+
+        // Cargar el estado de munición del arma que se está equipando
+        if (weaponStates.TryGetValue(currentWeaponData, out WeaponAmmoState state))
+        {
+            currentAmmoInMagazine = state.ammoInMagazine;
+            currentTotalAmmo = state.totalAmmoReserve;
+        }
+        else // Si por alguna razón no estaba en el diccionario, inicializarla (no debería pasar si Start funcionó)
+        {
+            Debug.LogWarning($"Estado no encontrado para {currentWeaponData.weaponName}, inicializando.");
+            currentAmmoInMagazine = currentWeaponData.magazineSize;
+            currentTotalAmmo = currentWeaponData.maxTotalAmmo;
+            weaponStates[currentWeaponData] = new WeaponAmmoState(currentAmmoInMagazine, currentTotalAmmo);
+        }
+
+        isReloading = false; // Asegurar que no se quede en estado de recarga al cambiar
+        nextTimeToShoot = 0f; // Permitir disparar la nueva arma inmediatamente
+        UpdateAmmoUI();
+        // if (weaponNameTextElement != null) weaponNameTextElement.text = currentWeaponData.weaponName;
+        Debug.Log($"Arma equipada: {currentWeaponData.weaponName} (Munición: {currentAmmoInMagazine}/{currentTotalAmmo})");
+
+        // Aquí iría la lógica para cambiar el modelo visual del arma, reproducir sonido de equipar, etc.
+    }
+
+    // --- NUEVA FUNCIÓN: Para cambiar de arma con la rueda del ratón ---
+    private void SwitchWeaponByScroll(float scrollValue)
+    {
+        if (isReloading || startingWeapons.Count <= 1) return;
+
+        int newIndex = currentWeaponIndex;
+        if (scrollValue > 0f) newIndex--; // Rueda hacia arriba, arma anterior (o siguiente si inviertes)
+        else if (scrollValue < 0f) newIndex++; // Rueda hacia abajo, arma siguiente
+
+        // Manejar el bucle de la lista de armas
+        if (newIndex >= startingWeapons.Count) newIndex = 0;
+        else if (newIndex < 0) newIndex = startingWeapons.Count - 1;
+
+        EquipWeaponByIndex(newIndex);
+    }
+
+    private void TryShoot()
+    {
+        if (currentWeaponData == null || isReloading || Time.time < nextTimeToShoot) return;
+
         if (currentAmmoInMagazine <= 0)
         {
             Debug.Log("¡Sin munición! Necesitas recargar.");
-            // Podríamos iniciar la recarga automáticamente aquí o reproducir un sonido de "clic vacío"
-            // StartReload(); // <-- Opcional: Recarga automática al intentar disparar vacío
+            // Aquí podrías reproducir un sonido de "clic vacío"
+            // AudioSource.PlayClipAtPoint(currentWeaponData.emptyClipSound, playerCamera.transform.position);
+            // StartReload(); // Opcional: Recarga automática
             return;
         }
 
-        // Actualizar el tiempo para el próximo disparo permitido
         nextTimeToShoot = Time.time + currentWeaponData.fireRate;
-
-        // Realizar el disparo
         Shoot();
-
-        // Reducir munición y actualizar UI
         currentAmmoInMagazine--;
+        weaponStates[currentWeaponData].ammoInMagazine = currentAmmoInMagazine; // Guardar estado
         UpdateAmmoUI();
     }
 
-    // Ejecuta la lógica del disparo usando los datos del arma actual
     private void Shoot()
     {
-        // Reproducir sonido de disparo del arma
         if (currentWeaponData.fireSound != null)
         {
-            // Podrías querer un AudioSource en el jugador/arma para más control,
-            // o seguir usando PlayClipAtPoint si el sonido debe originarse del jugador.
             AudioSource.PlayClipAtPoint(currentWeaponData.fireSound, playerCamera.transform.position, 0.8f);
         }
-
-        // (Opcional) Instanciar fogonazo si tienes un punto de referencia (muzzlePoint)
-        // if (currentWeaponData.muzzleFlashPrefab != null && muzzlePoint != null)
-        // {
-        //     Instantiate(currentWeaponData.muzzleFlashPrefab, muzzlePoint.position, muzzlePoint.rotation);
-        // }
-
 
         Ray ray = playerCamera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0));
         RaycastHit hitInfo;
 
         if (Physics.Raycast(ray, out hitInfo, currentWeaponData.range))
         {
-            Debug.DrawRay(ray.origin, ray.direction * hitInfo.distance, Color.red, 0.1f);
+            // Debug.DrawRay(ray.origin, ray.direction * hitInfo.distance, Color.red, 0.1f);
+            // Debug.Log($"Raycast golpeó: {hitInfo.transform.name} (Tag: {hitInfo.transform.tag})");
 
-            Debug.Log($"Raycast golpeó: {hitInfo.transform.name} (Tag: {hitInfo.transform.tag})"); // <-- NUEVO LOG
-            
-            HealthManager targetHealth = hitInfo.transform.GetComponent<HealthManager>();
-            if (targetHealth != null) // Golpeó enemigo
+            HealthManager targetHealth = hitInfo.transform.GetComponentInParent<HealthManager>(); // Usar GetComponentInParent
+            if (targetHealth != null)
             {
-                Debug.Log($"HealthManager encontrado en {hitInfo.transform.name}. Aplicando daño."); // <-- NUEVO LOG
+                // Debug.Log($"HealthManager encontrado en {hitInfo.transform.name}. Aplicando daño.");
                 targetHealth.TakeDamage(currentWeaponData.damage);
 
-                if (currentWeaponData.impactFleshSound != null)
+                // Usar el sonido/VFX del WeaponData si existe, si no, el default del PlayerShooting
+                AudioClip soundToPlay = currentWeaponData.impactFleshSound != null ? currentWeaponData.impactFleshSound : defaultImpactFleshSound;
+                GameObject vfxToPlay = currentWeaponData.impactFleshVFXPrefab != null ? currentWeaponData.impactFleshVFXPrefab : defaultImpactFleshVFXPrefab;
+
+                if (soundToPlay != null)
                 {
-                    AudioSource.PlayClipAtPoint(currentWeaponData.impactFleshSound, hitInfo.point, 0.7f);
+                    AudioSource.PlayClipAtPoint(soundToPlay, hitInfo.point, 0.7f);
                 }
-                if (currentWeaponData.impactFleshVFXPrefab != null)
+                if (vfxToPlay != null)
                 {
-                    Instantiate(currentWeaponData.impactFleshVFXPrefab, hitInfo.point, Quaternion.LookRotation(hitInfo.normal));
+                    Instantiate(vfxToPlay, hitInfo.point, Quaternion.LookRotation(hitInfo.normal));
                 }
             }
-            // else if (currentWeaponData.impactEnvironmentSound != null) // Si añades para entorno
-            // {
-            //     AudioSource.PlayClipAtPoint(currentWeaponData.impactEnvironmentSound, hitInfo.point, 0.7f);
-            //     if (currentWeaponData.impactEnvironmentVFXPrefab != null)
-            //     {
-            //         Instantiate(currentWeaponData.impactEnvironmentVFXPrefab, hitInfo.point, Quaternion.LookRotation(hitInfo.normal));
-            //     }
-            // }
         }
-        else
-        {
-            Debug.DrawRay(ray.origin, ray.direction * currentWeaponData.range, Color.green, 0.1f);
-            Debug.LogWarning($"No se encontró HealthManager en {hitInfo.transform.name} (Tag: {hitInfo.transform.tag})."); // <-- NUEVO LOG
-        }
+        // else { Debug.DrawRay(ray.origin, ray.direction * currentWeaponData.range, Color.green, 0.1f); }
     }
 
-    // Inicia el proceso de recarga si es posible
     private void StartReload()
     {
-        // No recargar si ya estamos recargando, si el cargador está lleno o si no hay munición de reserva
-        if (isReloading || currentAmmoInMagazine == currentWeaponData.magazineSize || currentTotalAmmo <= 0)
+        if (currentWeaponData == null || isReloading || currentAmmoInMagazine == currentWeaponData.magazineSize || currentTotalAmmo <= 0)
         {
             return;
         }
-
-        // Iniciar la corutina de recarga
         StartCoroutine(ReloadCoroutine());
     }
 
-    // Corutina que maneja el tiempo de recarga
     private IEnumerator ReloadCoroutine()
     {
-        Debug.Log("Recargando...");
+        if (currentWeaponData == null) yield break;
+
+        Debug.Log($"Recargando {currentWeaponData.weaponName}...");
         isReloading = true;
         // Aquí podrías reproducir sonido de inicio de recarga o animación
+        // if(currentWeaponData.reloadStartSound) audioSource.PlayOneShot(currentWeaponData.reloadStartSound);
 
-        // Esperar el tiempo definido en WeaponData
         yield return new WaitForSeconds(currentWeaponData.reloadTime);
 
-        // Calcular cuántas balas necesitamos y cuántas tenemos disponibles
         int ammoNeeded = currentWeaponData.magazineSize - currentAmmoInMagazine;
-        int ammoToTransfer = Mathf.Min(ammoNeeded, currentTotalAmmo); // Tomar lo necesario o lo que quede
+        int ammoToTransfer = Mathf.Min(ammoNeeded, currentTotalAmmo);
 
-        // Transferir munición
         currentAmmoInMagazine += ammoToTransfer;
         currentTotalAmmo -= ammoToTransfer;
 
-        // Finalizar estado de recarga
+        // Guardar el nuevo estado de munición en el diccionario
+        weaponStates[currentWeaponData].ammoInMagazine = currentAmmoInMagazine;
+        weaponStates[currentWeaponData].totalAmmoReserve = currentTotalAmmo;
+
         isReloading = false;
         UpdateAmmoUI();
-        Debug.Log("¡Recarga completa!");
+        Debug.Log($"¡Recarga completa para {currentWeaponData.weaponName}!");
         // Aquí podrías reproducir sonido de fin de recarga
+        // if(currentWeaponData.reloadEndSound) audioSource.PlayOneShot(currentWeaponData.reloadEndSound);
     }
 
-    // Actualiza el elemento TextMeshPro con la munición actual
     private void UpdateAmmoUI()
     {
-        if (ammoTextElement != null)
-        {
-            ammoTextElement.text = $"AMMO: {currentAmmoInMagazine} / {currentTotalAmmo}";
-        }
+        if (currentWeaponData == null || ammoTextElement == null) return;
+        ammoTextElement.text = $"{currentWeaponData.weaponName.ToUpper()}: {currentAmmoInMagazine} / {currentTotalAmmo}";
     }
 }
