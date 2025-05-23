@@ -10,26 +10,18 @@ public class HealthManager : MonoBehaviour
 
     [Header("Audio Feedback (Optional)")]
     [SerializeField] private AudioClip damageSound;
-    private AudioSource audioSource;
+    private AudioSource audioSource; // Para el sonido de daño de esta entidad
 
-    // --- MODIFICADO: Evento OnDied ahora puede pasar el propio HealthManager ---
-    // Esto permite a los suscriptores acceder a cualquier información pública del HealthManager
-    // o de componentes en el mismo GameObject, como un EnemyData si lo guardamos aquí.
     public event Action<HealthManager> OnDied; // Pasa la instancia de este HealthManager
-
     public event Action<float> OnHealthChanged;
 
-
-    // --- NUEVO: Referencia opcional a EnemyData para la recompensa ---
-    // EnemyInitializer se encargará de asignar esto.
-    private EnemyData associatedEnemyData;
-
+    private EnemyData associatedEnemyData; // Asignado por EnemyInitializer
+    private EnemyAI enemyAIComponent;       // --- NUEVO: Referencia a EnemyAI ---
 
     public float CurrentHealth => currentHealth;
     public float MaxHealth => maxHealth;
     public bool IsDead => currentHealth <= 0;
-    public EnemyData GetAssociatedEnemyData() => associatedEnemyData; // Getter para el EnemyData
-
+    public EnemyData GetAssociatedEnemyData() => associatedEnemyData;
 
     void Awake()
     {
@@ -38,11 +30,19 @@ public class HealthManager : MonoBehaviour
             SetInitialHealth(initialMaxHealthValue, initialMaxHealthValue);
         }
 
-        audioSource = GetComponent<AudioSource>();
-        if (audioSource == null && damageSound != null) // Solo advertir si hay un damageSound asignado pero no AudioSource
+        audioSource = GetComponent<AudioSource>(); // Este AudioSource es para el 'damageSound'
+        if (audioSource == null && damageSound != null)
         {
-            Debug.LogWarning($"HealthManager en {gameObject.name} tiene un 'damageSound' asignado pero no tiene AudioSource. El sonido de daño no se reproducirá.", this);
+            Debug.LogWarning($"HealthManager en {gameObject.name} tiene un 'damageSound' pero no AudioSource.", this);
         }
+
+        // --- NUEVO: Obtener referencia a EnemyAI ---
+        enemyAIComponent = GetComponent<EnemyAI>();
+        // No es un error crítico si no lo tiene, podría ser un objeto destructible sin IA.
+        // if (enemyAIComponent == null && GetComponent<NavMeshAgent>() != null) // Si es un agente pero no tiene EnemyAI
+        // {
+        //     Debug.LogWarning($"HealthManager en {gameObject.name} parece ser un enemigo (tiene NavMeshAgent) pero no tiene EnemyAI para la animación de muerte.", this);
+        // }
     }
 
     public void SetInitialHealth(float health, float maxHealthValue)
@@ -50,20 +50,12 @@ public class HealthManager : MonoBehaviour
         this.maxHealth = Mathf.Max(1f, maxHealthValue);
         this.currentHealth = Mathf.Clamp(health, 0f, this.maxHealth);
         OnHealthChanged?.Invoke(this.currentHealth);
-        // Debug.Log($"{gameObject.name} salud inicializada a {currentHealth}/{this.maxHealth}");
     }
 
-    // --- NUEVO: Método para que EnemyInitializer asigne el EnemyData ---
     public void SetEnemyDataReference(EnemyData data)
     {
         associatedEnemyData = data;
-        // Podrías querer actualizar maxHealth aquí también si el EnemyData es la fuente de verdad
-        // y SetInitialHealth no fue llamado por el initializer con los datos del EnemyData.
-        // Pero si EnemyInitializer llama a SetInitialHealth DESPUÉS de asignar enemyData,
-        // o si llama a SetInitialHealth con los valores de enemyData, no es necesario aquí.
-        // Por ahora, asumimos que EnemyInitializer gestiona SetInitialHealth correctamente.
     }
-
 
     public void TakeDamage(float damageAmount)
     {
@@ -87,7 +79,6 @@ public class HealthManager : MonoBehaviour
 
     public void Heal(float healAmount)
     {
-        // ... (sin cambios) ...
         if (IsDead || healAmount <= 0) return;
         currentHealth += healAmount;
         currentHealth = Mathf.Min(currentHealth, maxHealth);
@@ -96,11 +87,18 @@ public class HealthManager : MonoBehaviour
 
     private void Die()
     {
-        // Debug.Log($"{gameObject.name} ha muerto.");
+        OnDied?.Invoke(this); // Notificar a los suscriptores (como EnemySpawner, CurrencyManager)
 
-        // --- MODIFICADO: Invocar OnDied pasando 'this' (la instancia actual de HealthManager) ---
-        OnDied?.Invoke(this); // 'this' se refiere a este componente HealthManager
-
-        gameObject.SetActive(false); // O Destroy(gameObject);
+        // --- NUEVO: Llamar a la animación de muerte en EnemyAI ANTES de desactivar el GameObject ---
+        if (enemyAIComponent != null)
+        {
+            enemyAIComponent.TriggerDeathSequence(); // Un método que maneja la animación y la desactivación final
+        }
+        else
+        {
+            // Si no hay EnemyAI para manejar una animación de muerte, desactivar inmediatamente
+            Debug.Log($"{gameObject.name} ha muerto y se desactivará (no hay EnemyAI para animación).");
+            gameObject.SetActive(false);
+        }
     }
 }

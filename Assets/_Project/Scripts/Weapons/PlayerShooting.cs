@@ -181,6 +181,33 @@ public class PlayerShooting : MonoBehaviour
         EquipWeaponByIndex(newIndex);
     }
 
+    public bool AddReserveAmmoToCurrentWeapon(int amount)
+    {
+        if (currentWeaponData == null || amount <= 0) return false;
+
+        // Comprobar si ya estamos al máximo de la reserva total para esta arma
+        // (Asumiendo que weaponStates guarda el estado actual)
+        if (weaponStates.TryGetValue(currentWeaponData, out WeaponAmmoState state))
+        {
+            if (state.totalAmmoReserve >= currentWeaponData.maxTotalAmmo)
+            {
+                Debug.Log($"Reserva de munición para {currentWeaponData.weaponName} ya está al máximo.");
+                return false; // Ya al máximo
+            }
+
+            state.totalAmmoReserve += amount;
+            // Asegurarse de no exceder la capacidad máxima total del arma
+            state.totalAmmoReserve = Mathf.Min(state.totalAmmoReserve, currentWeaponData.maxTotalAmmo);
+
+            // Actualizar nuestra variable local también, aunque el estado está en el diccionario
+            currentTotalAmmo = state.totalAmmoReserve;
+
+            UpdateAmmoUI();
+            return true; // Munición añadida
+        }
+        return false; // No se encontró estado para el arma (no debería pasar si está equipada)
+    }
+
     private void TryShoot()
     {
         if (currentWeaponData == null || isReloading || Time.time < nextTimeToShoot) return;
